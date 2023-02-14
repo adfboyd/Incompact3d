@@ -35,9 +35,9 @@ contains
     real(mytype)               :: dx
     real(mytype)               :: remp
     integer                    :: i,j,k
-    real(mytype)               :: xm,ym,r,rads2,kcon
+    real(mytype)               :: xm,ym,zm,r,rads2,kcon
     real(mytype)               :: zeromach
-    real(mytype)               :: cexx,ceyy,dist_axi
+    real(mytype)               :: cexx,ceyy,cezz,dist_axi
 
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
@@ -48,30 +48,35 @@ contains
     ! Intitialise epsi
     epsi(:,:,:)=zero
 
-    ! Update center of moving Cylinder
+    ! Update center of moving Cylinder - change to ellipsoid
     !cexx=cex+ubcx*t
     !ceyy=cey+ubcy*t
     ! Update center of moving Cylinder
     if (t.ne.0.) then
        cexx=cex+ubcx*(t-ifirst*dt)
        ceyy=cey+ubcy*(t-ifirst*dt)
+       cezz=cez+ubcz*(t-ifirst*dt)
     else
        cexx=cex
        ceyy=cey
+       cezz=cez
     endif
     !
     ! Define adjusted smoothing constant
 !    kcon = log((one-0.0001)/0.0001)/(smoopar*0.5*dx) ! 0.0001 is the y-value, smoopar: desired number of affected points 
 !
     do k=nzi,nzf
+       zm=real(k+xstart(3)-2,mytype)*dz
        do j=nyi,nyf
           ym=yp(j)
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
-             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+             r=sqrt_prec(((xm-cexx)/sex)**two+((ym-ceyy)/sey)**two+((zm-cezz)/sez)**two)
              if (r-ra.gt.zeromach) then
-                cycle
+                
+               cycle
              endif
+             write(*,'(A,3(F5.2,2x))') "Inside solid, the coords are: ", xm, ym, zm
              epsi(i,j,k)=remp
           enddo
        enddo
