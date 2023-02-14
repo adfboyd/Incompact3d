@@ -73,10 +73,8 @@ contains
              xm=real(i-1,mytype)*dx
              r=sqrt_prec(((xm-cexx)/sex)**two+((ym-ceyy)/sey)**two+((zm-cezz)/sez)**two)
              if (r-ra.gt.zeromach) then
-                
                cycle
              endif
-            !  write(*,'(A,3(F5.2,2x))') "Inside solid, the coords are: ", xm, ym, zm
              epsi(i,j,k)=remp
           enddo
        enddo
