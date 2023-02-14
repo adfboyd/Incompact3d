@@ -570,6 +570,7 @@ subroutine parameter_defaults()
   use variables
   use decomp_2d
   use complex_geometry
+  use ibm_param
 
   use probes, only : nprobes, flag_all_digits, flag_extra_probes
   use visu, only : output2D
@@ -607,6 +608,9 @@ subroutine parameter_defaults()
   nraf = 0
   nobjmax = 0
 
+  sex = 1.0_mytype
+  sey = 1.0_mytype
+  sez = 1.0_mytype
   nvol = 0
   iforces = 0
   itrip = 0
