@@ -76,7 +76,7 @@ contains
                 
                cycle
              endif
-             write(*,'(A,3(F5.2,2x))') "Inside solid, the coords are: ", xm, ym, zm
+            !  write(*,'(A,3(F5.2,2x))') "Inside solid, the coords are: ", xm, ym, zm
              epsi(i,j,k)=remp
           enddo
        enddo
