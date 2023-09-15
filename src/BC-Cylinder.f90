@@ -26,6 +26,7 @@ contains
     use param, only : one, two, ten
     use ibm_param
     use dbg_schemes, only: sqrt_prec
+   !  use actuator_line_model_utils, only: EllipsoidalRadius
 
     implicit none
 
@@ -38,6 +39,7 @@ contains
     real(mytype)               :: xm,ym,zm,r,rads2,kcon
     real(mytype)               :: zeromach
     real(mytype)               :: cexx,ceyy,cezz,dist_axi
+   !  real(mytype)               :: point(3), ce(3), orientation(4), shape(3)
 
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
@@ -45,10 +47,14 @@ contains
     end do
     zeromach = ten*zeromach
 
+   !  orientation=[1.0, 0.0, 0.0, 0.0]
+   !  shape=[1.0, 1.0, 1.0]
+
+
     ! Intitialise epsi
     epsi(:,:,:)=zero
 
-    ! Update center of moving Cylinder - change to ellipsoid
+    ! Update center of moving Cylinder
     !cexx=cex+ubcx*t
     !ceyy=cey+ubcy*t
     ! Update center of moving Cylinder
@@ -61,20 +67,25 @@ contains
        ceyy=cey
        cezz=cez
     endif
+
+   !  ce=[cexx, ceyy, cezz]
     !
     ! Define adjusted smoothing constant
 !    kcon = log((one-0.0001)/0.0001)/(smoopar*0.5*dx) ! 0.0001 is the y-value, smoopar: desired number of affected points 
-!
+!   
     do k=nzi,nzf
-       zm=real(k+xstart(3)-2,mytype)*dz
+      zm=(real(k+xstart(3)-2,mytype))*dz
        do j=nyi,nyf
           ym=yp(j)
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
-             r=sqrt_prec(((xm-cexx)/sex)**two+((ym-ceyy)/sey)**two+((zm-cezz)/sez)**two)
+            !  point=[xm, ym, zm]
+            !  call EllipsoidalRadius(point, ce, orientation, shape, r)
+             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
              if (r-ra.gt.zeromach) then
-               cycle
+                cycle
              endif
+            !  write(*,*) i, j, k
              epsi(i,j,k)=remp
           enddo
        enddo
