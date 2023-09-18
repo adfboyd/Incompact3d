@@ -39,7 +39,7 @@ contains
     real(mytype)               :: xm,ym,zm,r,rads2,kcon
     real(mytype)               :: zeromach
     real(mytype)               :: cexx,ceyy,cezz,dist_axi
-   !  real(mytype)               :: point(3), ce(3), orientation(4), shape(3)
+    real(mytype)               :: point(3), ce(3), orientation(4), shape(3)
 
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
@@ -47,8 +47,8 @@ contains
     end do
     zeromach = ten*zeromach
 
-   !  orientation=[1.0, 0.0, 0.0, 0.0]
-   !  shape=[1.0, 1.0, 1.0]
+    orientation=[1.0, 0.0, 0.0, 0.0]
+    shape=[1.0, 1.0, 1.0]
 
 
     ! Intitialise epsi
@@ -68,26 +68,28 @@ contains
        cezz=cez
     endif
 
-   !  ce=[cexx, ceyy, cezz]
+    ce=[cexx, ceyy, cezz]
     !
     ! Define adjusted smoothing constant
 !    kcon = log((one-0.0001)/0.0001)/(smoopar*0.5*dx) ! 0.0001 is the y-value, smoopar: desired number of affected points 
 !   
     do k=nzi,nzf
-      zm=(real(k+xstart(3)-2,mytype))*dz
+      zm=(real(nzi+k-2,mytype))*dz
        do j=nyi,nyf
           ym=yp(j)
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
-            !  point=[xm, ym, zm]
+             point=[xm, ym, zm]
             !  call EllipsoidalRadius(point, ce, orientation, shape, r)
-             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
-            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
+             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+
              if (r-ra.gt.zeromach) then
                 cycle
              endif
             !  write(*,*) i, j, k
-              epsi(i,j,k)=remp
+             epsi(i,j,k)=remp
+            !  write(*,*) remp
           enddo
        enddo
     enddo
