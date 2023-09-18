@@ -72,22 +72,24 @@ contains
     !
     ! Define adjusted smoothing constant
 !    kcon = log((one-0.0001)/0.0001)/(smoopar*0.5*dx) ! 0.0001 is the y-value, smoopar: desired number of affected points 
-!   
+  write(*,*) nzi, nzf
     do k=nzi,nzf
-      zm=(real(nzi+k-2,mytype))*dz
+      zm=(real(k-1,mytype))*dz
+      ! write(*,*) k, zm
        do j=nyi,nyf
           ym=yp(j)
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
              point=[xm, ym, zm]
             !  call EllipsoidalRadius(point, ce, orientation, shape, r)
-            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
-             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
+            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
 
              if (r-ra.gt.zeromach) then
+               !  write(*,*) i, j, k
                 cycle
              endif
-            !  write(*,*) i, j, k
+            !  write(*,*) i, j, k, zm
              epsi(i,j,k)=remp
             !  write(*,*) remp
           enddo
