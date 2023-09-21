@@ -175,9 +175,9 @@ contains
     real(mytype),dimension(nobjmax,xsize(2),xsize(3))  :: xi,xf
     real(mytype),dimension(nobjmax,ysize(1),ysize(3))  :: yi,yf
     real(mytype),dimension(nobjmax,zsize(1),zsize(2))  :: zi,zf
-    real(mytype),dimension(nxraf,xsize(2),xsize(3))    :: xepsi
-    real(mytype),dimension(ysize(1),nyraf,ysize(3))    :: yepsi
-    real(mytype),dimension(zsize(1),zsize(2),nzraf)    :: zepsi
+    real(mytype),dimension(nxraf,xsize(2),xsize(3))    :: xepsi,xep1,xep2,xep3
+    real(mytype),dimension(ysize(1),nyraf,ysize(3))    :: yepsi,yep1,yep2,yep3
+    real(mytype),dimension(zsize(1),zsize(2),nzraf)    :: zepsi,zep1,zep2,zep3
     real(mytype),dimension(ny)                         :: yp
     real(mytype),dimension(nyraf)                      :: ypraf
     real(mytype)                     :: dxraf,dyraf,dzraf
@@ -198,7 +198,7 @@ contains
     integer                          :: numvis
     integer                          :: mpi_aux_i, code
 
-   !  write(*,*)'Inside gene_epsi_3D'
+    write(*,*)'Inside gene_epsi_3D'
     !x-pencil
     ep1=zero
     call geomcomplex(ep1,ep1_ux,ep1_uy,ep1_uz,xstart(1),xend(1),ny,xstart(2),xend(2),xstart(3),xend(3),dx,yp,dz,one)
@@ -209,7 +209,8 @@ contains
        dxraf =xlx/real(nxraf-1, mytype)
     endif
     xepsi=zero
-    call geomcomplex(xepsi,ep1_ux,ep1_uy,ep1_uz,1,nxraf,ny,xstart(2),xend(2),xstart(3),xend(3),dxraf,yp,dz,one)
+    write(*,*) 'Doing x pencil'
+    call geomcomplex(xepsi,xep1,xep2,xep3,1,nxraf,ny,xstart(2),xend(2),xstart(3),xend(3),dxraf,yp,dz,one)
     ! if (nrank==0) print*,'    step 2'
     !y-pencil
     if(ncly)then
@@ -224,7 +225,7 @@ contains
     enddo
     if(.not.ncly)ypraf(nyraf)=yp(ny)
     yepsi=zero
-    call geomcomplex(yepsi,ep1_ux,ep1_uy,ep1_uz,ystart(1),yend(1),nyraf,1,nyraf,ystart(3),yend(3),dx,ypraf,dz,one)
+    call geomcomplex(yepsi,yep1,yep2,yep3,ystart(1),yend(1),nyraf,1,nyraf,ystart(3),yend(3),dx,ypraf,dz,one)
     ! if (nrank==0) print*,'    step 3'
     !z-pencil
     if(nclz)then
@@ -233,7 +234,7 @@ contains
        dzraf=zlz/real(nzraf-1, mytype)
     endif
     zepsi=zero
-    call geomcomplex(zepsi,ep1_ux,ep1_uy,ep1_uz,zstart(1),zend(1),ny,zstart(2),zend(2),1,nzraf,dx,yp,dzraf,one)
+    call geomcomplex(zepsi,zep1,zep2,zep3,zstart(1),zend(1),ny,zstart(2),zend(2),1,nzraf,dx,yp,dzraf,one)
     ! if (nrank==0) print*,'    step 4'
 
     !x-pencil

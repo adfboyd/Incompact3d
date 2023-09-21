@@ -93,7 +93,7 @@ subroutine geomcomplex_ellip(epsi,epsi_x,epsi_y,epsi_z,nxi,nxf,ny,nyi,nyf,nzi,nz
             epsi_x(i,j,k)=pointVelocity(1)
             epsi_y(i,j,k)=pointVelocity(2)
             epsi_z(i,j,k)=pointVelocity(3)
-            !  write(*,*) remp
+            !  write(*,*) 'Set ep1_x(',i,j,k,') = ',pointVelocity(1)
         enddo
         enddo
     enddo

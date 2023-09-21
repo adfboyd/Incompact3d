@@ -20,7 +20,7 @@ contains
   !! DESCRIPTION: Takes the intermediate momentum field as input,
   !!              computes div and solves pressure-Poisson equation.
   !############################################################################
-  SUBROUTINE solve_poisson(pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, drho1, divu3)
+  SUBROUTINE solve_poisson(pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, ep1x,ep1y,ep1z, drho1, divu3)
 
     USE decomp_2d, ONLY : mytype, xsize, zsize, ph1, nrank, real_type
     USE decomp_2d_poisson, ONLY : poisson
@@ -34,7 +34,7 @@ contains
 
     !! Inputs
     REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3)), INTENT(IN) :: ux1, uy1, uz1
-    REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3)), INTENT(IN) :: ep1
+    REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3)), INTENT(IN) :: ep1,ep1x,ep1y,ep1z
     REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3), nrhotime), INTENT(IN) :: rho1
     REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3), ntime), INTENT(IN) :: drho1
     REAL(mytype), DIMENSION(zsize(1), zsize(2), zsize(3)), INTENT(IN) :: divu3
@@ -70,7 +70,7 @@ contains
        CALL momentum_to_velocity(rho1, ux1, uy1, uz1)
     ENDIF
 
-    CALL divergence(pp3(:,:,:,1),rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
+    CALL divergence(pp3(:,:,:,1),rho1,ux1,uy1,uz1,ep1,ep1x,ep1y,ep1z,drho1,divu3,nlock)
     IF (ilmn.AND.ivarcoeff) THEN
        dv3(:,:,:) = pp3(:,:,:,1)
     ENDIF
@@ -82,7 +82,7 @@ contains
 
           IF (.NOT.converged) THEN
              !! Evaluate additional RHS terms
-             CALL calc_varcoeff_rhs(pp3(:,:,:,1), rho1, px1, py1, pz1, dv3, drho1, ep1, divu3, rho0, &
+             CALL calc_varcoeff_rhs(pp3(:,:,:,1), rho1, px1, py1, pz1, dv3, drho1, ep1,ep1x,ep1y,ep1z, divu3, rho0, &
                   poissiter)
           ENDIF
 
@@ -254,7 +254,7 @@ contains
   ! output : pp3 (on pressure mesh)
   !written by SL 2018
   !############################################################################
-  subroutine divergence (pp3,rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
+  subroutine divergence (pp3,rho1,ux1,uy1,uz1,ep1,ep1x,ep1y,ep1z,drho1,divu3,nlock)
 
     USE param
     USE decomp_2d
@@ -270,7 +270,7 @@ contains
     !  TYPE(DECOMP_INFO) :: ph1,ph3,ph4
 
     !X PENCILS NX NY NZ  -->NXM NY NZ
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(in) :: ux1,uy1,uz1,ep1
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(in) :: ux1,uy1,uz1,ep1,ep1x,ep1y,ep1z
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),ntime),intent(in) :: drho1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),nrhotime),intent(in) :: rho1
     !Z PENCILS NXM NYM NZ  -->NXM NYM NZM
@@ -289,9 +289,9 @@ contains
        tc1(:,:,:) = uz1(:,:,:)
     elseif (itype.eq.itype_ellip) then
       write(*,*) 'Computing flow field in navier correctly.'
-      ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ep1_ux(:,:,:)
-      tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1_uy(:,:,:)
-      tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1_uz(:,:,:)
+      ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ep1x(:,:,:)
+      tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1y(:,:,:)
+      tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1z(:,:,:)
     else
        ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*lvx
        tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*lvy
@@ -1152,7 +1152,7 @@ contains
   !! DESCRIPTION: Computes RHS of the variable-coefficient Poisson solver
   !!
   !############################################################################
-  SUBROUTINE calc_varcoeff_rhs(pp3, rho1, px1, py1, pz1, dv3, drho1, ep1, divu3, rho0, poissiter)
+  SUBROUTINE calc_varcoeff_rhs(pp3, rho1, px1, py1, pz1, dv3, drho1, ep1, ep1x,ep1y,ep1z, divu3, rho0, poissiter)
 
     USE MPI
 
@@ -1171,7 +1171,7 @@ contains
     REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3)) :: px1, py1, pz1
     REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3), nrhotime) :: rho1
     REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3), ntime) :: drho1
-    REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3)) :: ep1
+    REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3)) :: ep1,ep1x,ep1y,ep1z
     REAL(mytype), INTENT(IN), DIMENSION(zsize(1), zsize(2), zsize(3)) :: divu3
     REAL(mytype), INTENT(IN), DIMENSION(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize) :: dv3
     real(mytype) :: rho0
@@ -1195,7 +1195,7 @@ contains
     tc1(:,:,:) = (one - rho0 / rho1(:,:,:,1)) * pz1(:,:,:)
 
     nlock = -1 !! Don't do any funny business with LMN
-    CALL divergence(pp3,rho1,ta1,tb1,tc1,ep1,drho1,divu3,nlock)
+    CALL divergence(pp3,rho1,ta1,tb1,tc1,ep1,ep1x,ep1y,ep1z,drho1,divu3,nlock)
 
     !! lapl(p) = div((1 - rho0/rho) grad(p)) + rho0(div(u*) - div(u))
     !! dv3 contains div(u*) - div(u)

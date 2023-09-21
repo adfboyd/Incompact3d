@@ -22,6 +22,7 @@ module var
   real(mytype), save, allocatable, dimension(:,:,:,:) :: phi1, phi2, phi3
   real(mytype), save, allocatable, dimension(:,:,:) :: px1, py1, pz1
   real(mytype), save, allocatable, dimension(:,:,:) :: ep1, diss1, pre1
+  real(mytype), save, allocatable, dimension(:,:,:) :: ep1_ux, ep1_uy, ep1_uz
   real(mytype), save, allocatable, dimension(:,:,:,:) :: dux1,duy1,duz1  ! Output of convdiff
   real(mytype), save, allocatable, dimension(:,:,:,:,:) :: dphi1
   real(mytype), save, allocatable, dimension(:,:,:) :: mu1,mu2,mu3
@@ -156,6 +157,12 @@ contains
     di1 = zero
     call alloc_x(ep1)
     ep1 = zero
+    call alloc_x(ep1_ux)
+    ep1_ux = zero
+    call alloc_x(ep1_uy)
+    ep1_uy = zero
+    call alloc_x(ep1_uz)
+    ep1_uz = zero
     if (ilmn) then
       call alloc_x(mu1, opt_global=.true.)
       mu1 = one
