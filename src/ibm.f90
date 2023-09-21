@@ -12,7 +12,7 @@ contains
     USE param
     USE decomp_2d
     USE variables
-    USE actuator_line_model_utils, ONLY: CalculatePointVelocity
+
     implicit none
     integer :: i,j,k,nlock
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux,uy,uz,px,py,pz
@@ -402,7 +402,7 @@ subroutine cubsplx(u,lind)
   USE decomp_2d
   USE variables
   USE ibm_param
-  USE actuator_line_model_utils
+  USE ellipsoid_utils, ONLY: CalculatePointVelocity
   !
   implicit none
   !
@@ -592,6 +592,8 @@ subroutine cubsply(u,lind)
   USE decomp_2d
   USE variables
   USE ibm_param
+  USE ellipsoid_utils, ONLY: CalculatePointVelocity
+
   !
   implicit none
   !
@@ -786,6 +788,8 @@ subroutine cubsplz(u,lind)
   USE decomp_2d
   USE variables
   USE ibm_param
+  USE ellipsoid_utils, ONLY: CalculatePointVelocity
+
   !
   implicit none
   !
