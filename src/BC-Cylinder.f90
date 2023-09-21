@@ -39,37 +39,37 @@ contains
     real(mytype)               :: xm,ym,zm,r,rads2,kcon
     real(mytype)               :: zeromach
     real(mytype)               :: cexx,ceyy,cezz,dist_axi
-    real(mytype)               :: point(3)
+    real(mytype)               :: point(3),ce(3)
 
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
        zeromach = zeromach/two
     end do
     zeromach = ten*zeromach
-
-   !  orientation=[oriw, orii, orij, orik]
+    
+    orientation=[oriw, orii, orij, orik]
     call NormalizeQuaternion(orientation)
-   !  shape=[shx, shy, shz]
-   !  write(*,*) shape, 'SHAPE'
+    shape=[1.0, 1.0, 1.0]
 
 
     ! Intitialise epsi
     epsi(:,:,:)=zero
 
-
-    ! Update center of moving ellipsoid
+    ! Update center of moving Cylinder
+    !cexx=cex+ubcx*t
+    !ceyy=cey+ubcy*t
+    ! Update center of moving Cylinder
     if (t.ne.0.) then
-       cexx=cex+lvx*(t-ifirst*dt)
-       ceyy=cey+lvy*(t-ifirst*dt)
-       cezz=cez+lvz*(t-ifirst*dt)
+       cexx=cex+ubcx*(t-ifirst*dt)
+       ceyy=cey+ubcy*(t-ifirst*dt)
+       cezz=cez+ubcz*(t-ifirst*dt)
     else
        cexx=cex
        ceyy=cey
        cezz=cez
     endif
-    position=[cexx,ceyy,cezz]
-   !  write(*,*) position
-   !  ce=[cexx, ceyy, cezz]
+
+    ce=[cexx, ceyy, cezz]
     !
     ! Define adjusted smoothing constant
 !    kcon = log((one-0.0001)/0.0001)/(smoopar*0.5*dx) ! 0.0001 is the y-value, smoopar: desired number of affected points 
@@ -82,7 +82,7 @@ contains
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
              point=[xm, ym, zm]
-             call EllipsoidalRadius(point, position, orientation, shape, r)
+             call EllipsoidalRadius(point, ce, orientation, shape, r)
             !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
             !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
 
@@ -232,33 +232,15 @@ contains
     USE variables
     USE param
     USE MPI
-    USE ibm_param
     use dbg_schemes, only: exp_prec
-    use ellipsoid_utils, only: NormalizeQuaternion
-
 
     implicit none
 
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux1,uy1,uz1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),numscalar) :: phi1
 
-    real(mytype) :: y,um,eqr
+    real(mytype) :: y,um
     integer :: k,j,i,ii,is,code
-
-    eqr=(shx*shy*shz)**(1.0/3.0)
-    shape=[shx/eqr,shy/eqr,shz/eqr]
-
-    orientation=[oriw,orii,orij,orik]
-    call NormalizeQuaternion(orientation)
-    position=[cex,cey,cez]
-    linearVelocity=[lvx,lvy,lvz]
-    angularVelocity=[avx,avy,avz]
-
-    write(*,*) 'set shape = ', shape
-    write(*,*) 'set orientation = ', orientation
-    write(*,*) 'set position = ', position
-    write(*,*) 'set linear velocity = ', linearVelocity
-    write(*,*) 'set angular velocity = ', angularVelocity
 
     if (iscalar==1) then
 
@@ -392,7 +374,7 @@ contains
     endif
 
     !x-derivatives
-    call derx (ta1,ux1,di1,sx,ffx,fsx,fwx,xsize(1),xsize(2),xsize(3),0,1) !ubcx is 1. etc
+    call derx (ta1,ux1,di1,sx,ffx,fsx,fwx,xsize(1),xsize(2),xsize(3),0,1)
     call derx (tb1,uy1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,2)
     call derx (tc1,uz1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,3)
     !y-derivatives

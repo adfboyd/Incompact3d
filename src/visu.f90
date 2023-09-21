@@ -164,7 +164,7 @@ contains
   !
   ! Write a snapshot
   !
-  subroutine write_snapshot(rho1, ux1, uy1, uz1, pp3, phi1, ep1, itime, num)
+  subroutine write_snapshot(rho1, ux1, uy1, uz1, pp3, phi1, ep1, ep1_ux,ep1_uy,ep1_uz, itime, num)
 
     use decomp_2d, only : transpose_z_to_y, transpose_y_to_x
     use decomp_2d, only : mytype, xsize, ysize, zsize
@@ -189,7 +189,7 @@ contains
 
     !! inputs
     real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(in) :: ux1, uy1, uz1
-    real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(in) :: ep1
+    real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(in) :: ep1,ep1_ux,ep1_uy,ep1_uz
     real(mytype), dimension(xsize(1), xsize(2), xsize(3), nrhotime), intent(in) :: rho1
     real(mytype), dimension(ph3%zst(1):ph3%zen(1),ph3%zst(2):ph3%zen(2),nzmsize,npress), intent(in) :: pp3
     real(mytype), dimension(xsize(1), xsize(2), xsize(3), numscalar), intent(in) :: phi1
@@ -236,6 +236,7 @@ contains
     call write_field(uy1, ".", "uy", num)
     call write_field(uz1, ".", "uz", num)
     call write_field(ep1, ".", "ep1", num, skip_ibm = .true.)
+    ! call write_field(ep1_ux, ".", "ep1_ux", num, skip_ibm = .true.)
     
 
     ! Interpolate pressure

@@ -217,6 +217,20 @@ contains
 
    end subroutine    
 
+   subroutine is_inside_ellipsoid(point, centre, orientation, shape, ra, zeromach, is_inside)
+    real(mytype), intent(in) :: point(3), centre(3), orientation(4), shape(3), ra, zeromach
+    logical,intent(out)      :: is_inside
+    real(mytype)             :: r
+
+    call EllipsoidalRadius(point,centre,orientation,shape,r)
+
+    is_inside = ((r-ra).lt.zeromach)
+
+  end subroutine is_inside_ellipsoid
+
+
+
+
   subroutine CrossProduct(a, b, result)
     real(mytype), intent(in) :: a(3), b(3)
     real(mytype), intent(inout) :: result(3)
@@ -317,9 +331,9 @@ contains
       real(mytype)            :: mag, re_part, im_sc, im_part(3), omega_n1(4)
 
       call QuaternionNorm(omega_q, mag)
-      re_part=cos_prec(mag*dt*half)
+      re_part=cos_prec(mag*time_step*half)
       if (mag.gt.zero) then
-        im_sc = sin_prec(mag*dt*half)/mag
+        im_sc = sin_prec(mag*time_step*half)/mag
       else 
         im_sc = zero
       endif
@@ -374,17 +388,19 @@ contains
     
     
 
-    subroutine accel_get(omega, inertia, torque_b, ang_accel)
-      real(mytype),intent(in)  :: omega(4),inertia(3,3),torque_b(4) 
+    subroutine accel_get(omega_b, inertia, torque_b, ang_accel)
+      real(mytype),intent(in)  :: omega_b(4),inertia(3,3),torque_b(4) 
       real(mytype),intent(out) :: ang_accel(4)
-      real(mytype)             :: inertia_inv(3,3),omega_v(3),torque_v(3),test(3),crossed(3)
+      real(mytype)             :: inertia_inv(3,3),omega_v(3),torque_v(3),test(3),crossed(3),ang_accel_v(3)
 
       call invert_3x3_matrix(inertia,inertia_inv)
-      omega_v=omega(2:4)
+      omega_v=omega_b(2:4)
       torque_v=torque_b(2:4)
       call matrix_vector_multiply(inertia,omega_v,test)
       call CrossProduct(omega_v,test,crossed)
-      call matrix_vector_multiply(inertia_inv,(torque_v-crossed),ang_accel)
+      call matrix_vector_multiply(inertia_inv,(torque_v-crossed),ang_accel_v)
+
+      ang_accel=[zero, ang_accel_v(1), ang_accel_v(2), ang_accel_v(3)]
 
     end subroutine accel_get
 
@@ -392,9 +408,9 @@ contains
 
     subroutine ang_half_step(q, omega_q, torque, q_new, o_new)
       use param
+      use ibm_param
       real(mytype),intent(in)  :: q(4),omega_q(4),torque(3)
       real(mytype),intent(out) :: q_new(4),o_new(4)
-      real(mytype)             :: inertia(3,3)
       real(mytype)             :: omega_b(4),torque_q(4),ang_accel_b(4),torque_b(4)
       real(mytype)             :: omega_n_quarter_b(4),omega_n_quarter(4),omega_n_half_b(4),omega_n_half(4)
       real(mytype)             :: q_half_predict(4)
@@ -422,9 +438,9 @@ contains
 
     subroutine ang_full_step(q,omega_q,q_half,omega_n_half,torque,q_full,omega_full)
       use param
+      use ibm_param
       real(mytype),intent(in)  :: q(4),omega_q(4),q_half(4),omega_n_half(4),torque(3)
       real(mytype),intent(out) :: q_full(4),omega_full(4)
-      real(mytype)             :: inertia(3,3)
       real(mytype)             :: omega_b(4),omega_n_half_b(4),omega_full_b(4)
       real(mytype)             :: torque_q(4),torque_b(4)
       real(mytype)             :: ang_accel_half_b(4),omega_n_half2(4)
@@ -433,7 +449,7 @@ contains
       call lab_to_body(omega_n_half,q_half,omega_n_half_b)
 
       torque_q(1)=zero
-      torque_q(2:4)=torque
+      torque_q(2:4)=torque(:)
       call lab_to_body(torque_q,q_half,torque_b)
 
       call accel_get(omega_n_half_b,inertia,torque_b,ang_accel_half_b)
@@ -445,5 +461,31 @@ contains
       call body_to_lab(omega_full_b,q_full,omega_full)
 
     end subroutine ang_full_step
+
+    subroutine ang_step(q,omega_q,torque,q1,omega1)
+      use param
+      use ibm_param
+      real(mytype),intent(in) :: q(4),omega_q(4),torque(3)
+      real(mytype),intent(out):: q1(4),omega1(4)
+      real(mytype)            :: torque_q(4),omega_b(4),torque_b(4),omega_half_b(4),omega1_b(4)
+      real(mytype)            :: ang_accel_b(4), omega_half(4)
+
+      call lab_to_body(omega_q, q, omega_b) !convert to body frame
+      torque_q(1)=zero
+      torque_q(2:4)=torque(:)
+      call lab_to_body(torque_q,q, torque_b)
+
+      call accel_get(omega_b,inertia,torque_b,ang_accel_b) !calculate acceleration
+
+      call omega_stepper(omega_b, ang_accel_b,dt*half,omega_half_b)
+      call omega_stepper(omega_b, ang_accel_b,dt,omega1_b) !calculate omega at half and full timestep
+
+      call body_to_lab(omega_half_b,q,omega_half) !convert back to lab
+
+      call orientation_stepper(q,omega_half,dt,q1) !step forward orientation
+      call body_to_lab(omega1_b,q1,omega1)
+      
+
+    end subroutine ang_step
 
 end module ellipsoid_utils

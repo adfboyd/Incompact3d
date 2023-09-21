@@ -16,27 +16,28 @@ PUBLIC :: init_ellip, boundary_conditions_ellip, postprocess_ellip, &
 
 contains
 
-subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
+subroutine geomcomplex_ellip(epsi,epsi_x,epsi_y,epsi_z,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
 
     use decomp_2d, only : mytype
     use param, only : one, two, ten
     use ibm_param
     use dbg_schemes, only: sqrt_prec
-    use ellipsoid_utils, only: EllipsoidalRadius, NormalizeQuaternion
+    use ellipsoid_utils, only: is_inside_ellipsoid, NormalizeQuaternion, CalculatePointVelocity
 
     implicit none
 
     integer                    :: nxi,nxf,ny,nyi,nyf,nzi,nzf
-    real(mytype),dimension(nxi:nxf,nyi:nyf,nzi:nzf) :: epsi
+    real(mytype),dimension(nxi:nxf,nyi:nyf,nzi:nzf) :: epsi,epsi_x,epsi_y,epsi_z
+    ! real(mytype),dimension(nxi:nxf,nyi:nyf,nzi:nzf) :: ep1_ux
     real(mytype),dimension(ny) :: yp
     real(mytype)               :: dx
     real(mytype)               :: remp
     integer                    :: i,j,k
-    real(mytype)               :: xm,ym,zm,r,rads2,kcon
+    real(mytype)               :: xm,ym,zm,rads2,kcon
     real(mytype)               :: zeromach
     real(mytype)               :: cexx,ceyy,cezz,dist_axi
-    real(mytype)               :: point(3)
-
+    real(mytype)               :: point(3),pointVelocity(3)
+    logical                    :: is_inside
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
         zeromach = zeromach/two
@@ -78,16 +79,20 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
         do i=nxi,nxf
             xm=real(i-1,mytype)*dx
             point=[xm, ym, zm]
-            call EllipsoidalRadius(point, position, orientation, shape, r)
+            call is_inside_ellipsoid(point, position, orientation, shape, ra, zeromach, is_inside)
             !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
             !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
 
-            if (r-ra.gt.zeromach) then
+            if (.not.is_inside) then
                 !  write(*,*) i, j, k
                 cycle
             endif
             !  write(*,*) i, j, k, zm
             epsi(i,j,k)=remp
+            call CalculatePointVelocity(point,position,linearVelocity,angularVelocity,pointVelocity)
+            epsi_x(i,j,k)=pointVelocity(1)
+            epsi_y(i,j,k)=pointVelocity(2)
+            epsi_z(i,j,k)=pointVelocity(3)
             !  write(*,*) remp
         enddo
         enddo
@@ -248,7 +253,7 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
     call NormalizeQuaternion(orientation)
     position=[cex,cey,cez]
     linearVelocity=[lvx,lvy,lvz]
-    angularVelocity=[avx,avy,avz]
+    angularVelocity=[zero,avx,avy,avz]
 
     write(*,*) 'set shape = ', shape
     write(*,*) 'set orientation = ', orientation

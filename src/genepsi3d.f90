@@ -8,7 +8,7 @@ module genepsi
 
 contains
 
-  subroutine epsi_init(ep1)
+  subroutine epsi_init(ep1,ep1_ux,ep1_uy,ep1_uz)
 
     USE param, only : zero, one, dx, dz
     USE decomp_2d, only : xstart, xend, xsize, mytype, nrank
@@ -16,7 +16,7 @@ contains
     USE variables, only : yp, ny
 
     implicit none
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1,ep1_ux,ep1_uy,ep1_uz
     logical :: dir_exists
 
 #ifdef DEBG
@@ -33,7 +33,10 @@ contains
     end if
     !###################################################################
     ep1(:,:,:)=zero
-    call geomcomplex(ep1,xstart(1),xend(1),ny,xstart(2),xend(2),xstart(3),xend(3),dx,yp,dz,one)
+    ep1_ux(:,:,:)=zero
+    ep1_uy(:,:,:)=zero
+    ep1_uz(:,:,:)=zero
+    call geomcomplex(ep1,ep1_ux,ep1_uy,ep1_uz,xstart(1),xend(1),ny,xstart(2),xend(2),xstart(3),xend(3),dx,yp,dz,one)
 
 #ifdef DEBG
     if (nrank .eq. 0) write(*,*)'# body_init done'
@@ -43,7 +46,7 @@ contains
   end subroutine epsi_init
 !############################################################################
 !############################################################################
-  subroutine geomcomplex(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, dz, remp)
+  subroutine geomcomplex(epsi, epsi_x,epsi_y,epsi_z, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, dz, remp)
 
     USE param, ONLY : itype, itype_cyl, itype_hill, itype_channel,itype_sandbox, itype_ellip
     USE decomp_2d, ONLY : mytype
@@ -56,7 +59,7 @@ contains
     IMPLICIT NONE
 
     INTEGER :: nxi,nxf,ny,nyi,nyf,nzi,nzf
-    REAL(mytype),DIMENSION(nxi:nxf,nyi:nyf,nzi:nzf) :: epsi
+    REAL(mytype),DIMENSION(nxi:nxf,nyi:nyf,nzi:nzf) :: epsi,epsi_x,epsi_y,epsi_z
     REAL(mytype)               :: dx,dz
     REAL(mytype),DIMENSION(ny) :: yp
     REAL(mytype)               :: remp
@@ -79,14 +82,14 @@ contains
 
     ELSEIF (itype.EQ.itype_ellip) THEN
 
-       CALL geomcomplex_ellip(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, remp)
+       CALL geomcomplex_ellip(epsi, epsi_x, epsi_y, epsi_z, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, remp)
 
     ENDIF
 
   end subroutine geomcomplex
 !############################################################################
 !############################################################################
-  subroutine genepsi3d(ep1)
+  subroutine genepsi3d(ep1,ep1_ux,ep1_uy,ep1_uz)
 
     USE variables, only : nx,ny,nz,nxm,nym,nzm,yp, ilist
     USE param, only : xlx,yly,zlz,dx,dy,dz,izap,npif,nclx,ncly,nclz,istret,itype,itype_sandbox
@@ -108,7 +111,7 @@ contains
     !*****************************************************************!
     !
     logical :: dir_exists
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1,ep1_ux,ep1_uy,ep1_uz
     !
     if (nrank==0.and.mod(itime,ilist)==0) then
       write(*,*)'==========================================================='
@@ -133,7 +136,7 @@ contains
       call geomcomplex_io(nx,ny,nz,ep1,nobjx,nobjy,nobjz,xi,xf,yi,yf,zi,zf,&
            nxipif,nxfpif,nyipif,nyfpif,nzipif,nzfpif,nobjmax,npif,.true.)
     else
-      call gene_epsi_3D(ep1,nx,ny,nz,dx,dy,dz,xlx,yly,zlz ,&
+      call gene_epsi_3D(ep1,ep1_ux,ep1_uy,ep1_uz,nx,ny,nz,dx,dy,dz,xlx,yly,zlz ,&
            nclx,ncly,nclz,nxraf,nyraf,nzraf   ,&
            xi,xf,yi,yf,zi,zf,nobjx,nobjy,nobjz,&
            nobjmax,yp,nraf)
@@ -147,7 +150,7 @@ contains
 !
 !############################################################################
 !############################################################################
-  subroutine gene_epsi_3D(ep1,nx,ny,nz,dx,dy,dz,xlx,yly,zlz ,&
+  subroutine gene_epsi_3D(ep1,ep1_ux,ep1_uy,ep1_uz,nx,ny,nz,dx,dy,dz,xlx,yly,zlz ,&
        nclx,ncly,nclz,nxraf,nyraf,nzraf   ,&
        xi,xf,yi,yf,zi,zf,nobjx,nobjy,nobjz,&
        nobjmax,yp,nraf)
@@ -157,6 +160,7 @@ contains
     implicit none
     !
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1,smoofun,fbcx,fbcy,fbcz
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1_ux,ep1_uy,ep1_uz
     real(mytype),dimension(ysize(1),ysize(2),ysize(3)) :: ep2
     real(mytype),dimension(zsize(1),zsize(2),zsize(3)) :: ep3
     integer                                            :: nx,ny,nz,nobjmax
@@ -197,7 +201,7 @@ contains
    !  write(*,*)'Inside gene_epsi_3D'
     !x-pencil
     ep1=zero
-    call geomcomplex(ep1,xstart(1),xend(1),ny,xstart(2),xend(2),xstart(3),xend(3),dx,yp,dz,one)
+    call geomcomplex(ep1,ep1_ux,ep1_uy,ep1_uz,xstart(1),xend(1),ny,xstart(2),xend(2),xstart(3),xend(3),dx,yp,dz,one)
     ! if (nrank==0) print*,'    step 1'
     if(nclx)then
        dxraf =xlx/real(nxraf, mytype)
@@ -205,7 +209,7 @@ contains
        dxraf =xlx/real(nxraf-1, mytype)
     endif
     xepsi=zero
-    call geomcomplex(xepsi,1,nxraf,ny,xstart(2),xend(2),xstart(3),xend(3),dxraf,yp,dz,one)
+    call geomcomplex(xepsi,ep1_ux,ep1_uy,ep1_uz,1,nxraf,ny,xstart(2),xend(2),xstart(3),xend(3),dxraf,yp,dz,one)
     ! if (nrank==0) print*,'    step 2'
     !y-pencil
     if(ncly)then
@@ -220,7 +224,7 @@ contains
     enddo
     if(.not.ncly)ypraf(nyraf)=yp(ny)
     yepsi=zero
-    call geomcomplex(yepsi,ystart(1),yend(1),nyraf,1,nyraf,ystart(3),yend(3),dx,ypraf,dz,one)
+    call geomcomplex(yepsi,ep1_ux,ep1_uy,ep1_uz,ystart(1),yend(1),nyraf,1,nyraf,ystart(3),yend(3),dx,ypraf,dz,one)
     ! if (nrank==0) print*,'    step 3'
     !z-pencil
     if(nclz)then
@@ -229,7 +233,7 @@ contains
        dzraf=zlz/real(nzraf-1, mytype)
     endif
     zepsi=zero
-    call geomcomplex(zepsi,zstart(1),zend(1),ny,zstart(2),zend(2),1,nzraf,dx,yp,dzraf,one)
+    call geomcomplex(zepsi,ep1_ux,ep1_uy,ep1_uz,zstart(1),zend(1),ny,zstart(2),zend(2),1,nzraf,dx,yp,dzraf,one)
     ! if (nrank==0) print*,'    step 4'
 
     !x-pencil

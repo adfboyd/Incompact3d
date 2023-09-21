@@ -287,6 +287,11 @@ contains
        ta1(:,:,:) = ux1(:,:,:)
        tb1(:,:,:) = uy1(:,:,:)
        tc1(:,:,:) = uz1(:,:,:)
+    elseif (itype.eq.itype_ellip) then
+      write(*,*) 'Computing flow field in navier correctly.'
+      ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ep1_ux(:,:,:)
+      tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1_uy(:,:,:)
+      tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1_uz(:,:,:)
     else
        ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*lvx
        tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*lvy

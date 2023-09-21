@@ -438,7 +438,6 @@ subroutine cubsplx(u,lind)
            ia=0
            do i=1,nobjx(j,k)          
               !  1st Boundary - I DON'T UNDERSTAND THIS XM CONVERSION.
-            xm=real(xstart(1)+i-2,mytype)*dx
               nxpif=npif
               ia=ia+1
               if (ianal.eq.0) then
@@ -448,6 +447,7 @@ subroutine cubsplx(u,lind)
                  call analitic_x(j,xi(i,j,k),ana_resi,k) ! Calculate the position of BC analytically
                  xa(ia)=ana_resi
               endif
+              xm=ana_resi
               point=[xm,ym,zm]
               call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
               x_pv=pointVelocity(1)
@@ -518,6 +518,34 @@ subroutine cubsplx(u,lind)
               else
                  call analitic_x(j,xf(i,j,k),ana_resf,k) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
+              endif
+              xm=ana_resf
+              point=[xm,ym,zm]
+              call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
+              x_pv=pointVelocity(1)
+              y_pv=pointVelocity(2)
+              z_pv=pointVelocity(3)
+              if (lind.eq.0) then
+               bcimp=zero
+              elseif (lind.eq.1) then
+               bcimp=x_pv
+               write(*,*) bcimp
+              elseif (lind.eq.2) then
+               bcimp=y_pv
+              elseif (lind.eq.3) then
+               bcimp=z_pv
+              elseif (lind.eq.4) then 
+               bcimp=x_pv*x_pv
+              elseif (lind.eq.5) then
+               bcimp=y_pv*y_pv
+              elseif (lind.eq.6) then 
+               bcimp=z_pv*z_pv
+              elseif (lind.eq.7) then
+               bcimp=x_pv*y_pv 
+              elseif (lind.eq.8) then 
+               bcimp=x_pv*z_pv
+              elseif (lind.eq.9) then
+               bcimp=y_pv*z_pv
               endif              
               ya(ia)=bcimp              
               if(xf(i,j,k).lt.xlx)then ! Immersed Object
@@ -630,7 +658,6 @@ subroutine cubsply(u,lind)
         if(nobjy(i,k).ne.0)then
            ia=0
            do j=1,nobjy(i,k)   
-            ym=real(ystart(2)+j-2,mytype)*dy       
               !  1st Boundary
               nypif=npif
               ia=ia+1
@@ -641,6 +668,7 @@ subroutine cubsply(u,lind)
                  call analitic_y(i,yi(j,i,k),ana_resi,k) ! Calculate the position of BC analytically
                  xa(ia)=ana_resi
               endif  
+              ym=ana_resi
               point=[xm,ym,zm]
               call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
               x_pv=pointVelocity(1)
@@ -716,6 +744,33 @@ subroutine cubsply(u,lind)
                  call analitic_y(i,yf(j,i,k),ana_resf,k) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
               endif  
+              ym=ana_resi
+              point=[xm,ym,zm]
+              call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
+              x_pv=pointVelocity(1)
+              y_pv=pointVelocity(2)
+              z_pv=pointVelocity(3)
+              if (lind.eq.0) then
+               bcimp=zero
+              elseif (lind.eq.1) then
+               bcimp=x_pv
+              elseif (lind.eq.2) then
+               bcimp=y_pv
+              elseif (lind.eq.3) then
+               bcimp=z_pv
+              elseif (lind.eq.4) then 
+               bcimp=x_pv*x_pv
+              elseif (lind.eq.5) then
+               bcimp=y_pv*y_pv
+              elseif (lind.eq.6) then 
+               bcimp=z_pv*z_pv
+              elseif (lind.eq.7) then
+               bcimp=x_pv*y_pv 
+              elseif (lind.eq.8) then 
+               bcimp=x_pv*z_pv
+              elseif (lind.eq.9) then
+               bcimp=y_pv*z_pv
+              endif
               ya(ia)=bcimp
               if(yf(j,i,k).lt.yly)then ! Immersed Object
                  jy=1
@@ -829,7 +884,6 @@ subroutine cubsplz(u,lind)
            ia=0
            do k=1,nobjz(i,j)          
               !  1st Boundary
-            zm=real(zstart(3)+k-2,mytype)*dz
               nzpif=npif
               ia=ia+1
               if (ianal.eq.0) then
@@ -839,6 +893,7 @@ subroutine cubsplz(u,lind)
 !                 call analitic_z(i,zi(k,i,j),ana_resi,j) ! Calculate the position of BC analytically
                  xa(ia)=ana_resi
               endif  
+              zm=ana_resi
               point=[xm,ym,zm]
               call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
               x_pv=pointVelocity(1)
@@ -906,6 +961,33 @@ subroutine cubsplz(u,lind)
               else
                  !call analitic_z(i,zf(k,i,j),ana_resf,j) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
+              endif
+              zm=ana_resf
+              point=[xm,ym,zm]
+              call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
+              x_pv=pointVelocity(1)
+              y_pv=pointVelocity(2)
+              z_pv=pointVelocity(3)
+              if (lind.eq.0) then
+               bcimp=zero
+              elseif (lind.eq.1) then
+               bcimp=x_pv
+              elseif (lind.eq.2) then
+               bcimp=y_pv
+              elseif (lind.eq.3) then
+               bcimp=z_pv
+              elseif (lind.eq.4) then 
+               bcimp=x_pv*x_pv
+              elseif (lind.eq.5) then
+               bcimp=y_pv*y_pv
+              elseif (lind.eq.6) then 
+               bcimp=z_pv*z_pv
+              elseif (lind.eq.7) then
+               bcimp=x_pv*y_pv 
+              elseif (lind.eq.8) then 
+               bcimp=x_pv*z_pv
+              elseif (lind.eq.9) then
+               bcimp=y_pv*z_pv
               endif
               ya(ia)=bcimp
               if(zf(k,i,j).lt.zlz)then  ! Immersed Object

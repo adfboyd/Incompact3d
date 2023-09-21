@@ -41,11 +41,11 @@ program xcompact3d
      do itr=1,iadvance_time
 
         call set_fluid_properties(rho1,mu1)
-        call boundary_conditions(rho1,ux1,uy1,uz1,phi1,ep1)
+        call boundary_conditions(rho1,ux1,uy1,uz1,phi1,ep1,ep1_ux,ep1_uy,ep1_uz)
 
         if (imove.eq.1) then ! update epsi for moving objects
           if ((iibm.eq.2).or.(iibm.eq.3)) then
-             call genepsi3d(ep1)
+             call genepsi3d(ep1,ep1_ux,ep1_uy,ep1_uz)
           else if (iibm.eq.1) then
              call body(ux1,uy1,uz1,ep1)
           endif
@@ -81,7 +81,7 @@ program xcompact3d
 
      call simu_stats(3)
 
-     call postprocessing(rho1,ux1,uy1,uz1,pp3,phi1,ep1)
+     call postprocessing(rho1,ux1,uy1,uz1,pp3,phi1,ep1,ep1_ux,ep1_uy,ep1_uz)
 
   enddo !! End time loop
 
@@ -192,9 +192,9 @@ subroutine init_xcompact3d()
   endif
 
   if ((iibm.eq.2).or.(iibm.eq.3)) then
-     call genepsi3d(ep1)
+     call genepsi3d(ep1,ep1_ux,ep1_uy,ep1_uz)
   else if (iibm.eq.1) then
-     call epsi_init(ep1)
+     call epsi_init(ep1,ep1_ux,ep1_uy,ep1_uz)
      call body(ux1,uy1,uz1,ep1)
   endif
 
@@ -233,7 +233,7 @@ subroutine init_xcompact3d()
   end if
 
   if ((iibm.eq.2).or.(iibm.eq.3)) then
-     call genepsi3d(ep1)
+     call genepsi3d(ep1,ep1_ux,ep1_uy,ep1_uz)
   else if ((iibm.eq.1).or.(iibm.eq.3)) then
      call body(ux1,uy1,uz1,ep1)
   endif

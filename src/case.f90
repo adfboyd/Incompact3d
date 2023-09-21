@@ -149,9 +149,9 @@ contains
   end subroutine init
   !##################################################################
   !##################################################################
-  subroutine boundary_conditions (rho,ux,uy,uz,phi,ep)
+  subroutine boundary_conditions (rho,ux,uy,uz,phi,ep,ep_x,ep_y,ep_z)
 
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux,uy,uz,ep
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux,uy,uz,ep,ep_x,ep_y,ep_z
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),numscalar) :: phi
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),nrhotime) :: rho
     
@@ -239,7 +239,7 @@ contains
   end subroutine preprocessing
   !##################################################################
   !##################################################################
-  subroutine postprocessing(rho1, ux1, uy1, uz1, pp3, phi1, ep1)
+  subroutine postprocessing(rho1, ux1, uy1, uz1, pp3, phi1, ep1, ep1_ux,ep1_uy,ep1_uz)
 
     use decomp_2d, only : mytype, xsize, ph1
     use visu, only  : write_snapshot, end_snapshot
@@ -255,7 +255,7 @@ contains
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ux1, uy1, uz1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),numscalar), intent(in) :: phi1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),nrhotime), intent(in) :: rho1
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ep1
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ep1,ep1_ux,ep1_uy,ep1_uz
     real(mytype),dimension(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize, npress), intent(in) :: pp3
 
     integer :: j
@@ -274,7 +274,7 @@ contains
     endif
 
     if ((ivisu.ne.0).and.(mod(itime, ioutput).eq.0)) then
-       call write_snapshot(rho1, ux1, uy1, uz1, pp3, T, ep1, itime, num)
+       call write_snapshot(rho1, ux1, uy1, uz1, pp3, T, ep1, ep1_ux,ep1_uy,ep1_uz, itime, num)
 
        ! XXX: Ultimate goal for ADIOS2 is to pass do all postproc online - do we need this?
        !      Currently, needs some way to "register" variables for IO
