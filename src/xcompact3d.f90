@@ -17,9 +17,9 @@ program xcompact3d
   use ibm, only : body
   use genepsi, only : genepsi3d
   use ellipsoid_utils, only: lin_step, ang_step, QuaternionNorm
-  use forces, only : force, init_forces, iforces
+
   implicit none
-  real(mytype)  :: dummy,drag,lift,lat
+  real(mytype)  :: dummy 
 
 
   call init_xcompact3d()
@@ -48,15 +48,6 @@ program xcompact3d
         if (imove.eq.1) then ! update epsi for moving objects
           if ((iibm.eq.2).or.(iibm.eq.3)) then
              call genepsi3d(ep1)
-             if (iforces.eq.1) then
-               xld = position(1) - ra * cvl_scalar
-               xrd = position(1) + ra * cvl_scalar
-               yld = position(2) - ra * cvl_scalar
-               yud = position(2) + ra * cvl_scalar
-               zld = position(3) - ra * cvl_scalar
-               zrd = position(3) + ra * cvl_scalar
-               call init_forces()
-             endif
           else if (iibm.eq.1) then
              call body(ux1,uy1,uz1,ep1)
           endif
@@ -87,9 +78,8 @@ program xcompact3d
         call test_flow(rho1,ux1,uy1,uz1,phi1,ep1,drho1,divu3)
 
         !Add force calculation here
-        call force(ux1,uy1,uz1,ep1,drag,lift,lat)
 
-        linearForce=[drag,lift,lat]
+        linearForce(:)=zero
         torque(:)=zero
 
         if (nrank==0) then
