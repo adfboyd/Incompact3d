@@ -39,6 +39,7 @@ contains
     real(mytype)               :: xm,ym,zm,r,rads2,kcon
     real(mytype)               :: zeromach
     real(mytype)               :: cexx,ceyy,cezz,dist_axi
+    real(mytype)               :: point(3)
 
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
@@ -46,6 +47,10 @@ contains
     end do
     zeromach = ten*zeromach
 
+   !  orientation=[oriw, orii, orij, orik]
+    call NormalizeQuaternion(orientation)
+   !  shape=[shx, shy, shz]
+   !  write(*,*) shape, 'SHAPE'
 
 
     ! Intitialise epsi
@@ -62,6 +67,7 @@ contains
        ceyy=cey
        cezz=cez
     endif
+    position=[cexx,ceyy,cezz]
    !  write(*,*) position
    !  ce=[cexx, ceyy, cezz]
     !
@@ -75,11 +81,18 @@ contains
           ym=yp(j)
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
-             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+             point=[xm, ym, zm]
+             call EllipsoidalRadius(point, position, orientation, shape, r)
+            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
+            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+
              if (r-ra.gt.zeromach) then
+               !  write(*,*) i, j, k
                 cycle
              endif
+            !  write(*,*) i, j, k, zm
              epsi(i,j,k)=remp
+            !  write(*,*) remp
           enddo
        enddo
     enddo
@@ -232,20 +245,20 @@ contains
     real(mytype) :: y,um,eqr
     integer :: k,j,i,ii,is,code
 
-   !  eqr=(shx*shy*shz)**(1.0/3.0)
-   !  shape=[shx/eqr,shy/eqr,shz/eqr]
+    eqr=(shx*shy*shz)**(1.0/3.0)
+    shape=[shx/eqr,shy/eqr,shz/eqr]
 
-   !  orientation=[oriw,orii,orij,orik]
-   !  call NormalizeQuaternion(orientation)
-   !  position=[cex,cey,cez]
-   !  linearVelocity=[lvx,lvy,lvz]
-   !  angularVelocity=[avx,avy,avz]
+    orientation=[oriw,orii,orij,orik]
+    call NormalizeQuaternion(orientation)
+    position=[cex,cey,cez]
+    linearVelocity=[lvx,lvy,lvz]
+    angularVelocity=[avx,avy,avz]
 
-   !  write(*,*) 'set shape = ', shape
-   !  write(*,*) 'set orientation = ', orientation
-   !  write(*,*) 'set position = ', position
-   !  write(*,*) 'set linear velocity = ', linearVelocity
-   !  write(*,*) 'set angular velocity = ', angularVelocity
+    write(*,*) 'set shape = ', shape
+    write(*,*) 'set orientation = ', orientation
+    write(*,*) 'set position = ', position
+    write(*,*) 'set linear velocity = ', linearVelocity
+    write(*,*) 'set angular velocity = ', angularVelocity
 
     if (iscalar==1) then
 
