@@ -82,9 +82,9 @@ contains
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
              point=[xm, ym, zm]
-             call EllipsoidalRadius(point, position, orientation, shape, r)
+            !  call EllipsoidalRadius(point, position, orientation, shape, r)
             !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
-            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
 
              if (r-ra.gt.zeromach) then
                !  write(*,*) i, j, k
@@ -252,7 +252,7 @@ contains
     call NormalizeQuaternion(orientation)
     position=[cex,cey,cez]
     linearVelocity=[lvx,lvy,lvz]
-    angularVelocity=[avx,avy,avz]
+    angularVelocity=[zero,zero,zero,avz]
 
     write(*,*) 'set shape = ', shape
     write(*,*) 'set orientation = ', orientation
