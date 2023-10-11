@@ -245,20 +245,20 @@ contains
     real(mytype) :: y,um,eqr
     integer :: k,j,i,ii,is,code
 
-    eqr=(shx*shy*shz)**(1.0/3.0)
-    shape=[shx/eqr,shy/eqr,shz/eqr]
+   !  eqr=(shx*shy*shz)**(1.0/3.0)
+   !  shape=[shx/eqr,shy/eqr,shz/eqr]
 
-    orientation=[oriw,orii,orij,orik]
-    call NormalizeQuaternion(orientation)
-    position=[cex,cey,cez]
-    linearVelocity=[lvx,lvy,lvz]
-    angularVelocity=[zero,zero,zero,avz]
+   !  orientation=[oriw,orii,orij,orik]
+   !  call NormalizeQuaternion(orientation)
+   !  position=[cex,cey,cez]
+   !  linearVelocity=[lvx,lvy,lvz]
+   !  angularVelocity=[zero,zero,zero,avz]
 
-    write(*,*) 'set shape            = ', shape
-    write(*,*) 'set orientation      = ', orientation
-    write(*,*) 'set position         = ', position
-    write(*,*) 'set linear velocity  = ', linearVelocity
-    write(*,*) 'set angular velocity = ', angularVelocity
+   !  write(*,*) 'set shape            = ', shape
+   !  write(*,*) 'set orientation      = ', orientation
+   !  write(*,*) 'set position         = ', position
+   !  write(*,*) 'set linear velocity  = ', linearVelocity
+   !  write(*,*) 'set angular velocity = ', angularVelocity
 
     if (iscalar==1) then
 
