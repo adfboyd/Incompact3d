@@ -254,10 +254,10 @@ contains
     linearVelocity=[lvx,lvy,lvz]
     angularVelocity=[zero,zero,zero,avz]
 
-    write(*,*) 'set shape = ', shape
-    write(*,*) 'set orientation = ', orientation
-    write(*,*) 'set position = ', position
-    write(*,*) 'set linear velocity = ', linearVelocity
+    write(*,*) 'set shape            = ', shape
+    write(*,*) 'set orientation      = ', orientation
+    write(*,*) 'set position         = ', position
+    write(*,*) 'set linear velocity  = ', linearVelocity
     write(*,*) 'set angular velocity = ', angularVelocity
 
     if (iscalar==1) then
