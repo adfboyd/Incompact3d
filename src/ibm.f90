@@ -428,7 +428,7 @@ subroutine cubsplx(u,lind)
   !
   ! Impose the Correct BC
 !   bcimp=lind  
-  write(*,*) lind
+!   write(*,*) lind
   !
   do k=1,xsize(3)
    zm=real(xstart(3)+k-2,mytype)*dz
@@ -457,7 +457,7 @@ subroutine cubsplx(u,lind)
                bcimp=zero
               elseif (lind.eq.1) then
                bcimp=x_pv
-               write(*,*) bcimp
+               ! write(*,*) bcimp
               elseif (lind.eq.2) then
                bcimp=y_pv
               elseif (lind.eq.3) then
@@ -620,7 +620,7 @@ subroutine cubsply(u,lind)
   !
   ! Impose the Correct BC
 !   bcimp=lind  
-  write(*,*) lind
+!   write(*,*) lind
 
   !
   do k=1,ysize(3)
@@ -643,6 +643,7 @@ subroutine cubsply(u,lind)
               endif  
               point=[xm,ym,zm]
               call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
+            !   write(*,*) 'PV = ', pointVelocity
               x_pv=pointVelocity(1)
               y_pv=pointVelocity(2)
               z_pv=pointVelocity(3)
@@ -676,6 +677,8 @@ subroutine cubsply(u,lind)
                  jy=jy-1
                  jpoli=jy+1
                  if(nyipif(j,i,k).lt.npif)nypif=nyipif(j,i,k)
+                 write(*,*) 'Range in y of 1 - ',nypif
+                 write(*,*) 'jy = ', jy
                  do jpif=1,nypif
                     ia=ia+1
                     if(izap.eq.1)then ! Skip First Points
@@ -818,7 +821,7 @@ subroutine cubsplz(u,lind)
   !
   ! Impose the Correct BC
 !   bcimp=lind  
-  write(*,*) lind
+!   write(*,*) lind
 
   !
   do j=1,zsize(2)
@@ -871,9 +874,12 @@ subroutine cubsplz(u,lind)
                  kz=zi(k,i,j)/dz+1
                  kpoli=kz+1
                  if(nzipif(k,i,j).lt.npif)nzpif=nzipif(k,i,j)
+                 write(*,*) 'Range in z of 1 - ',nzpif
+                 write(*,*) 'kz = ', kz
                  do kpif=1,nzpif
                     ia=ia+1
                     if(izap.eq.1)then ! Skip First Points
+                        write(*,*) 'attempting to access index ', kz, ' - ', kpif
                        xa(ia)=(kz-1)*dz-kpif*dz
                        ya(ia)=u(i,j,kz-kpif)
                     else              ! Don't Skip any Points

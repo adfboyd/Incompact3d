@@ -22,7 +22,7 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
     use param, only : one, two, ten
     use ibm_param
     use dbg_schemes, only: sqrt_prec
-    use ellipsoid_utils, only: NormalizeQuaternion, is_inside_ellipsoid
+    use ellipsoid_utils, only: NormalizeQuaternion, is_inside_ellipsoid, ellipInertiaCalculate
 
     implicit none
 
@@ -34,7 +34,7 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
     integer                    :: i,j,k
     real(mytype)               :: xm,ym,zm,r,rads2,kcon
     real(mytype)               :: zeromach
-    real(mytype)               :: cexx,ceyy,cezz,dist_axi
+    real(mytype)               :: cexx,ceyy,cezz,dist_axi,eqr
     real(mytype)               :: point(3)
     logical                    :: is_inside
 
@@ -44,8 +44,21 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
     end do
     zeromach = ten*zeromach
 
+    if (t.eq.0) then 
+        eqr=(shx*shy*shz)**(1.0/3.0)
+        shape=[shx/eqr,shy/eqr,shz/eqr]
+
+        orientation=[oriw,orii,orij,orik]
+        call NormalizeQuaternion(orientation)
+        position=[cex,cey,cez]
+        linearVelocity=[lvx,lvy,lvz]
+        angularVelocity=[zero,avx,avy,avz]
+        call ellipInertiaCalculate(shape,rho_s,inertia)
+    endif
+
+
     !  orientation=[oriw, orii, orij, orik]
-    call NormalizeQuaternion(orientation)
+    ! call NormalizeQuaternion(orientation)
     !  shape=[shx, shy, shz]
     !  write(*,*) shape, 'SHAPE'
 
