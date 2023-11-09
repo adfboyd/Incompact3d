@@ -17,6 +17,7 @@ program xcompact3d
   use ibm, only : body
   use genepsi, only : genepsi3d
   use ellipsoid_utils, only: lin_step, ang_step
+  use complex_geometry, only: nobjmax
 
   implicit none
 
@@ -90,6 +91,20 @@ program xcompact3d
 
          orientation = orientation_1
          angularVelocity = angularVelocity_1
+
+         if (nobjmax.gt.1) then
+            linearAcceleration_2(:)=zero
+            torque_2(:)=zero
+
+            call lin_step(position_2,linearVelocity_2,linearAcceleration_2,dt,position_1_2,linearVelocity_1_2)
+            call ang_step(orientation_2,angularVelocity_2,torque_2,dt,orientation_1_2,angularVelocity_1_2)
+
+            position_2 = position_1_2
+            linearVelocity_2 = linearVelocity_1_2
+
+            orientation_2 = orientation_1_2
+            angularVelocity_2 = angularVelocity_1_2
+         end if
 
         endif 
       !   if (nrank==0) then 
