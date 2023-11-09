@@ -276,7 +276,7 @@ contains
         do i = 1,xsize(1)
           xm=real(i+xstart(1)-2, mytype)*dx
           point=[xm,ym,zm]
-          if (ep1(i,j,k).eq.1).and.(abs(point-center).lt.(ra*shape(1))) then !check if grid point is solid, also if it belongs to correct ellipsoid.
+          if ((ep1(i,j,k).eq.1).and.(abs(point-center).lt.(ra*shape(1)))) then !check if grid point is solid, also if it belongs to correct ellipsoid.
             call CalculatePointVelocity(point, center, linearVelocity, angularVelocity, pointVelocity)
             x_pv=pointVelocity(1)
             y_pv=pointVelocity(2)
