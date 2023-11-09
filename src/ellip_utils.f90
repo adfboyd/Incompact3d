@@ -218,6 +218,14 @@ contains
 
    end subroutine    
 
+   subroutine vectorDistance(a,b,dist)
+    real(mytype), intent(in) :: a(3), b(3)
+    real(mytype), intent(out) :: dist
+
+    dist = sqrt_prec((a(1)-b(1))**two + (a(2)-b(2))**two + (a(3)-b(3))**two)
+
+   end subroutine
+
   subroutine CrossProduct(a, b, result)
     real(mytype), intent(in) :: a(3), b(3)
     real(mytype), intent(inout) :: result(3)
@@ -266,8 +274,9 @@ contains
     real(mytype), intent(in) :: center(3), linearVelocity(3), angularVelocity(3)
     real(mytype), dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ep1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(out) :: ep1_x, ep1_y, ep1_z
-    real(mytype) :: xm, ym, zm, point(3), x_pv, y_pv, z_pv, pointVelocity(3)
+    real(mytype) :: xm, ym, zm, point(3), x_pv, y_pv, z_pv, pointVelocity(3),dist
     integer :: i,j,k
+    logical ::close_enough
 
     do k = 1,xsize(3)
       zm=real(k+xstart(3)-2, mytype)*dz
@@ -276,7 +285,9 @@ contains
         do i = 1,xsize(1)
           xm=real(i+xstart(1)-2, mytype)*dx
           point=[xm,ym,zm]
-          if ((ep1(i,j,k).eq.1).and.(abs(point-center).lt.(ra*shape(1)))) then !check if grid point is solid, also if it belongs to correct ellipsoid.
+          call vectorDistance(point,center,dist)
+          close_enough=(dist.lt.(ra*shape(1)))
+          if ((ep1(i,j,k).eq.1).and.close_enough) then !check if grid point is solid, also if it belongs to correct ellipsoid.
             call CalculatePointVelocity(point, center, linearVelocity, angularVelocity, pointVelocity)
             x_pv=pointVelocity(1)
             y_pv=pointVelocity(2)
