@@ -133,7 +133,7 @@ contains
 
 
     subroutine NormalizeQuaternion(quaternion) 
-      real(mytype), intent(in) :: quaternion(4)
+      real(mytype), intent(inout) :: quaternion(4)
       real(mytype) :: normalizedQuaternion(4)
     
       ! Compute the magnitude of the quaternion
@@ -142,6 +142,7 @@ contains
     
       ! Normalize the quaternion
       normalizedQuaternion = quaternion / magnitude
+      quaternion = normalizedQuaternion
     
     end subroutine NormalizeQuaternion
 
@@ -237,9 +238,13 @@ contains
     ! Compute the cross product of angular velocity and distance vector
     
     call CrossProduct(angularVelocity, distance, crossed)
-  
+    ! write(*,*) 'Linear velocity = ', linearVelocity
+    ! write(*,*) 'Angular veloity = ', angularVelocity
+    ! write(*,*) 'radial velocity = ', crossed
     ! Calculate the velocity at the point
     pointVelocity = crossed + linearVelocity
+    ! write(*,*) 'Calculated PV = ', pointVelocity
+
   end subroutine CalculatePointVelocity
 
   subroutine is_inside_ellipsoid(point, centre, orientation, shape, ra, zeromach, is_inside)

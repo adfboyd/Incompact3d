@@ -48,7 +48,7 @@ contains
     zeromach = ten*zeromach
 
    !  orientation=[oriw, orii, orij, orik]
-    call NormalizeQuaternion(orientation)
+   !  call NormalizeQuaternion(orientation)
    !  shape=[shx, shy, shz]
    !  write(*,*) shape, 'SHAPE'
 

@@ -265,6 +265,7 @@ contains
     USE MPI
     USE ibm_param
     USE ellipsoid_utils, ONLY: navierFieldGen
+    USE complex_geometry, ONLY: nobjmax
 
     implicit none
 
@@ -278,6 +279,8 @@ contains
     real(mytype),dimension(zsize(1),zsize(2),zsize(3)),intent(in) :: divu3
     real(mytype),dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize) :: pp3
     real(mytype),dimension(xsize(1),xsize(2),xsize(3))     :: ep1_ux,ep1_uy,ep1_uz
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3))     :: ep1_ux2,ep1_uy2,ep1_uz2
+
     integer :: nvect3,i,j,k,nlock
     integer :: code
     real(mytype) :: tmax,tmoy,tmax1,tmoy1
@@ -289,10 +292,21 @@ contains
        tb1(:,:,:) = uy1(:,:,:)
        tc1(:,:,:) = uz1(:,:,:)
     else if (itype.eq.itype_ellip) then
+      if (nobjmax.eq.1) then 
        call navierFieldGen(position, linearVelocity, angularVelocity,ep1, ep1_ux, ep1_uy, ep1_uz)
        ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ep1_ux(:,:,:)
        tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1_uy(:,:,:)
        tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1_uz(:,:,:)
+
+      else if (nobjmax.eq.2) then 
+       call navierFieldGen(position, linearVelocity, angularVelocity,ep1, ep1_ux, ep1_uy, ep1_uz)
+       call navierFieldGen(position_2, linearVelocity_2, angularVelocity_2, ep1, ep1_ux2, ep1_uy2, ep1_uz2)
+       ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*(ep1_ux(:,:,:)+ep1_ux2(:,:,:))
+       tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*(ep1_uy(:,:,:)+ep1_uy2(:,:,:))
+       tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*(ep1_uz(:,:,:)+ep1_uz2(:,:,:))
+      else 
+         write(*,*) 'Currently unsupported number of bodies'
+       endif 
     else
        ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*lvx
        tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*lvy

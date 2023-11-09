@@ -21,6 +21,7 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
     use decomp_2d, only : mytype
     use param, only : one, two, ten
     use ibm_param
+    use complex_geometry, only : nobjmax
     use dbg_schemes, only: sqrt_prec
     use ellipsoid_utils, only: NormalizeQuaternion, is_inside_ellipsoid, ellipInertiaCalculate
 
@@ -36,7 +37,7 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
     real(mytype)               :: zeromach
     real(mytype)               :: cexx,ceyy,cezz,dist_axi,eqr
     real(mytype)               :: point(3)
-    logical                    :: is_inside
+    logical                    :: is_inside, is_inside_2
 
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
@@ -50,10 +51,23 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
 
         orientation=[oriw,orii,orij,orik]
         call NormalizeQuaternion(orientation)
+        ! write(*,*) 'Quaternion normalized!'
         position=[cex,cey,cez]
         linearVelocity=[lvx,lvy,lvz]
         angularVelocity=[zero,avx,avy,avz]
         call ellipInertiaCalculate(shape,rho_s,inertia)
+        if (nobjmax.gt.1) then
+            eqr=(shx2*shy2*shz2)**(1.0/3.0)
+            shape_2=[shx2/eqr,shy2/eqr,shz2/eqr]
+
+            orientation_2=[oriw2,orii2,orij2,orik2]
+            call NormalizeQuaternion(orientation_2)
+            ! write(*,*) 'Quaternion normalized!'
+            position_2=[cex2,cey2,cez2]
+            linearVelocity_2=[lvx2,lvy2,lvz2]
+            angularVelocity_2=[zero,avx2,avy2,avz2]
+            call ellipInertiaCalculate(shape_2,rho_s_2,inertia_2)
+        endif 
     endif
 
 
@@ -67,7 +81,7 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
     epsi(:,:,:)=zero
 
 
-    ! Update center of moving ellipsoid
+    ! ! Update center of moving ellipsoid
     ! if (t.ne.0.) then
     !     cexx=cex+lvx*(t-ifirst*dt)
     !     ceyy=cey+lvy*(t-ifirst*dt)
@@ -94,11 +108,22 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
             point=[xm, ym, zm]
             ! call EllipsoidalRadius(point, position, orientation, shape, r)
             call is_inside_ellipsoid(point, position, orientation, shape, ra, zeromach, is_inside)
-            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
-            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
 
-            if (.not.is_inside) then
+            if (nobjmax.gt.1) then
+                call is_inside_ellipsoid(point, position_2, orientation_2, shape_2, ra, zeromach, is_inside_2)
+            endif
+
+            !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
+            ! !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+            ! if (r-ra.gt.zeromach) then 
+            !     is_inside = .false.
+            ! else 
+            !     is_inside = .true.
+            ! endif 
+            if ((.not.is_inside).and.(nobjmax.eq.1)) then
                 !  write(*,*) i, j, k
+                cycle
+            else if ((.not.is_inside).and.(.not.is_inside_2)) then 
                 cycle
             endif
             !  write(*,*) i, j, k, zm

@@ -78,18 +78,20 @@ program xcompact3d
 
         !Add force calculation here
 
-        linearAcceleration(:)=zero
-        torque(:)=zero
+        if (itype.eq.itype_ellip) then 
+         linearAcceleration(:)=zero
+         torque(:)=zero
 
-        call lin_step(position,linearVelocity,linearAcceleration,dt,position_1,linearVelocity_1)
-        call ang_step(orientation,angularVelocity,torque,dt,orientation_1,angularVelocity_1)
+         call lin_step(position,linearVelocity,linearAcceleration,dt,position_1,linearVelocity_1)
+         call ang_step(orientation,angularVelocity,torque,dt,orientation_1,angularVelocity_1)
 
-        position = position_1
-        linearVelocity = linearVelocity_1
+         position = position_1
+         linearVelocity = linearVelocity_1
 
-        orientation = orientation_1
-        angularVelocity = angularVelocity_1
+         orientation = orientation_1
+         angularVelocity = angularVelocity_1
 
+        endif 
       !   if (nrank==0) then 
       !    write(*,*) 'Centroid position is ', position
       !    write(*,*) 'Orientation is ', orientation

@@ -449,7 +449,7 @@ subroutine cubsplx(u,lind)
                  xa(ia)=ana_resi
               endif
               point=[xm,ym,zm]
-              call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
+              call CalculatePointVelocity(point, position, linearVelocity, angularVelocity, pointVelocity)
               x_pv=pointVelocity(1)
               y_pv=pointVelocity(2)
               z_pv=pointVelocity(3)
@@ -642,7 +642,7 @@ subroutine cubsply(u,lind)
                  xa(ia)=ana_resi
               endif  
               point=[xm,ym,zm]
-              call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
+              call CalculatePointVelocity(point, position, linearVelocity, angularVelocity, pointVelocity)
             !   write(*,*) 'PV = ', pointVelocity
               x_pv=pointVelocity(1)
               y_pv=pointVelocity(2)
@@ -677,8 +677,8 @@ subroutine cubsply(u,lind)
                  jy=jy-1
                  jpoli=jy+1
                  if(nyipif(j,i,k).lt.npif)nypif=nyipif(j,i,k)
-                 write(*,*) 'Range in y of 1 - ',nypif
-                 write(*,*) 'jy = ', jy
+               !   write(*,*) 'Range in y of 1 - ',nypif
+               !   write(*,*) 'jy = ', jy
                  do jpif=1,nypif
                     ia=ia+1
                     if(izap.eq.1)then ! Skip First Points
@@ -843,7 +843,8 @@ subroutine cubsplz(u,lind)
                  xa(ia)=ana_resi
               endif  
               point=[xm,ym,zm]
-              call CalculatePointVelocity(point, position, angularVelocity, linearVelocity, pointVelocity)
+              
+              call CalculatePointVelocity(point, position, linearVelocity, angularVelocity, pointVelocity)
               x_pv=pointVelocity(1)
               y_pv=pointVelocity(2)
               z_pv=pointVelocity(3)
@@ -874,12 +875,12 @@ subroutine cubsplz(u,lind)
                  kz=zi(k,i,j)/dz+1
                  kpoli=kz+1
                  if(nzipif(k,i,j).lt.npif)nzpif=nzipif(k,i,j)
-                 write(*,*) 'Range in z of 1 - ',nzpif
-                 write(*,*) 'kz = ', kz
+               !   write(*,*) 'Range in z of 1 - ',nzpif
+               !   write(*,*) 'kz = ', kz
                  do kpif=1,nzpif
                     ia=ia+1
-                    if(izap.eq.1)then ! Skip First Points
-                        write(*,*) 'attempting to access index ', kz, ' - ', kpif
+                    if(izap.eq.1) then ! Skip First Points
+                        ! write(*,*) 'attempting to access index ', kz - kpif
                        xa(ia)=(kz-1)*dz-kpif*dz
                        ya(ia)=u(i,j,kz-kpif)
                     else              ! Don't Skip any Points
