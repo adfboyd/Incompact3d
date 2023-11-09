@@ -262,6 +262,7 @@ contains
   subroutine navierFieldGen(center, linearVelocity, angularVelocity, ep1, ep1_x, ep1_y, ep1_z)
     use param
     use decomp_2d
+    use ibm_param, only: ra, shape
     real(mytype), intent(in) :: center(3), linearVelocity(3), angularVelocity(3)
     real(mytype), dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ep1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(out) :: ep1_x, ep1_y, ep1_z
@@ -275,7 +276,7 @@ contains
         do i = 1,xsize(1)
           xm=real(i+xstart(1)-2, mytype)*dx
           point=[xm,ym,zm]
-          if (ep1(i,j,k).eq.1) then 
+          if (ep1(i,j,k).eq.1).and.(abs(point-center).lt.(ra*shape(1))) then !check if grid point is solid, also if it belongs to correct ellipsoid.
             call CalculatePointVelocity(point, center, linearVelocity, angularVelocity, pointVelocity)
             x_pv=pointVelocity(1)
             y_pv=pointVelocity(2)
