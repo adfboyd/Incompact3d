@@ -61,7 +61,8 @@ subroutine parameter(input_i3d)
   NAMELIST /WallModel/ smagwalldamp
   NAMELIST /Tripping/ itrip,A_tr,xs_tr_tbl,ys_tr_tbl,ts_tr_tbl,x0_tr_tbl
   NAMELIST /ibmstuff/ cex,cey,cez,shx,shy,shz,oriw,orii,orij,orik,lvx,lvy,lvz,avx,avy,avz,ra,nobjmax, &
-       cex2,cey2,cez2,shx2,shy2,shz2,oriw2,orii2,orij2,orik2,lvx2,lvy2,lvz2,avx2,avy2,avz2,rho_s_2, &
+       cex2,cey2,cez2,shx2,shy2,shz2,oriw2,orii2,orij2,orik2,lvx2,lvy2,lvz2,avx2,avy2,avz2,rho_s_2,ra2, &
+       cex3,cey3,cez3,shx3,shy3,shz3,oriw3,orii3,orij3,orik3,lvx3,lvy3,lvz3,avx3,avy3,avz3,rho_s_3,ra3, &
        nraf,nvol,iforces, npif, izap, ianal, imove, thickness, chord, omega ,ubcx,ubcy,ubcz,rads,rho_s, c_air
   NAMELIST /ForceCVs/ xld, xrd, yld, yud!, zld, zrd
   NAMELIST /LMN/ dens1, dens2, prandtl, ilmn_bound, ivarcoeff, ilmn_solve_temp, &
@@ -573,7 +574,7 @@ subroutine parameter_defaults()
   use probes, only : nprobes, flag_all_digits, flag_extra_probes
   use visu, only : output2D
   use forces, only : iforces, nvol
-  use ibm_param, only : oriw,orii,orij,orik,rho_s,shx,shy,shz,oriw2,shx2,shy2,shz2,rho_s_2
+  use ibm_param, only : oriw,orii,orij,orik,rho_s,shx,shy,shz,oriw2,shx2,shy2,shz2,rho_s_2,oriw3,shx3,shy3,shz3,rho_s_3
 
   implicit none
 
@@ -624,8 +625,13 @@ subroutine parameter_defaults()
   shx2=one
   shy2=one
   shz2=one
+  shx3=one
+  shy3=one
+  shz3=one
   oriw2=one
+  oriw3=one
   rho_s_2=one
+  rho_s_3=one
 
 
   !! Gravity field

@@ -104,6 +104,20 @@ program xcompact3d
 
             orientation_2 = orientation_1_2
             angularVelocity_2 = angularVelocity_1_2
+            if (nobjmax.gt.2) then 
+               linearAcceleration_3(:)=zero
+               torque_3(:)=zero
+   
+               call lin_step(position_3,linearVelocity_3,linearAcceleration_3,dt,position_1_3,linearVelocity_1_3)
+               call ang_step(orientation_3,angularVelocity_3,torque_3,dt,orientation_1_3,angularVelocity_1_3)
+   
+               position_3 = position_1_3
+               linearVelocity_3 = linearVelocity_1_3
+   
+               orientation_3 = orientation_1_3
+               angularVelocity_3 = angularVelocity_1_3
+
+            end if
          end if
 
         endif 

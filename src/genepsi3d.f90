@@ -79,7 +79,7 @@ contains
 
     ELSEIF (itype.EQ.itype_ellip) THEN
 
-       CALL geomcomplex_ellip(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, remp)
+       CALL geomcomplex_ellip(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, dz, remp)
 
     ENDIF
 

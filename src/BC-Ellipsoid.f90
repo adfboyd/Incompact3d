@@ -16,7 +16,7 @@ PUBLIC :: init_ellip, boundary_conditions_ellip, postprocess_ellip, &
 
 contains
 
-subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
+subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,dz,remp)
 
     use decomp_2d, only : mytype
     use param, only : one, two, ten
@@ -30,14 +30,14 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
     integer                    :: nxi,nxf,ny,nyi,nyf,nzi,nzf
     real(mytype),dimension(nxi:nxf,nyi:nyf,nzi:nzf) :: epsi
     real(mytype),dimension(ny) :: yp
-    real(mytype)               :: dx
+    real(mytype)               :: dx,dz
     real(mytype)               :: remp
     integer                    :: i,j,k
     real(mytype)               :: xm,ym,zm,r,rads2,kcon
     real(mytype)               :: zeromach
     real(mytype)               :: cexx,ceyy,cezz,dist_axi,eqr
     real(mytype)               :: point(3)
-    logical                    :: is_inside, is_inside_2
+    logical                    :: is_inside, is_inside_2, is_inside_3
 
     zeromach=one
     do while ((one + zeromach / two) .gt. one)
@@ -67,6 +67,18 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
             linearVelocity_2=[lvx2,lvy2,lvz2]
             angularVelocity_2=[zero,avx2,avy2,avz2]
             call ellipInertiaCalculate(shape_2,rho_s_2,inertia_2)
+            if (nobjmax.gt.2) then 
+                eqr=(shx3*shy3*shz3)**(1.0/3.0)
+                shape_3=[shx3/eqr,shy3/eqr,shz3/eqr]
+
+                orientation_3=[oriw3,orii3,orij3,orik3]
+                call NormalizeQuaternion(orientation_3)
+                ! write(*,*) 'Quaternion normalized!'
+                position_3=[cex3,cey3,cez3]
+                linearVelocity_3=[lvx3,lvy3,lvz3]
+                angularVelocity_3=[zero,avx3,avy3,avz3]
+                call ellipInertiaCalculate(shape_3,rho_s_3,inertia_3)
+            endif
         endif 
     endif
 
@@ -110,7 +122,10 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
             call is_inside_ellipsoid(point, position, orientation, shape, ra, zeromach, is_inside)
 
             if (nobjmax.gt.1) then
-                call is_inside_ellipsoid(point, position_2, orientation_2, shape_2, ra, zeromach, is_inside_2)
+                call is_inside_ellipsoid(point, position_2, orientation_2, shape_2, ra2, zeromach, is_inside_2)
+                if (nobjmax.gt.2) then 
+                    call is_inside_ellipsoid(point, position_3, orientation_3, shape_3, ra3, zeromach, is_inside_3)
+                endif
             endif
 
             !  r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two+(zm-cezz)**two)
@@ -123,7 +138,9 @@ subroutine geomcomplex_ellip(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
             if ((.not.is_inside).and.(nobjmax.eq.1)) then
                 !  write(*,*) i, j, k
                 cycle
-            else if ((.not.is_inside).and.(.not.is_inside_2)) then 
+            else if ((.not.is_inside).and.(.not.is_inside_2).and.(nobjmax.eq.2)) then 
+                cycle
+            else if ((.not.is_inside).and.(.not.is_inside_2).and.(.not.is_inside_3).and.(nobjmax.eq.3)) then 
                 cycle
             endif
             !  write(*,*) i, j, k, zm

@@ -280,6 +280,8 @@ contains
     real(mytype),dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize) :: pp3
     real(mytype),dimension(xsize(1),xsize(2),xsize(3))     :: ep1_ux,ep1_uy,ep1_uz
     real(mytype),dimension(xsize(1),xsize(2),xsize(3))     :: ep1_ux2,ep1_uy2,ep1_uz2
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3))     :: ep1_ux3,ep1_uy3,ep1_uz3
+
 
     integer :: nvect3,i,j,k,nlock
     integer :: code
@@ -304,6 +306,15 @@ contains
        ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*(ep1_ux(:,:,:)+ep1_ux2(:,:,:))
        tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*(ep1_uy(:,:,:)+ep1_uy2(:,:,:))
        tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*(ep1_uz(:,:,:)+ep1_uz2(:,:,:))
+
+      else if (nobjmax.eq.3) then 
+       call navierFieldGen(position, linearVelocity, angularVelocity,ep1, ep1_ux, ep1_uy, ep1_uz)
+       call navierFieldGen(position_2, linearVelocity_2, angularVelocity_2, ep1, ep1_ux2, ep1_uy2, ep1_uz2)
+       call navierFieldGen(position_3, linearVelocity_3, angularVelocity_3, ep1, ep1_ux3, ep1_uy3, ep1_uz3)
+
+       ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*(ep1_ux(:,:,:)+ep1_ux2(:,:,:)+ep1_ux3(:,:,:))
+       tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*(ep1_uy(:,:,:)+ep1_uy2(:,:,:)+ep1_uy3(:,:,:))
+       tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*(ep1_uz(:,:,:)+ep1_uz2(:,:,:)+ep1_uz3(:,:,:))
       else 
          write(*,*) 'Currently unsupported number of bodies'
        endif 
