@@ -275,6 +275,97 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
 
     ux1=zero; uy1=zero; uz1=zero
 
+    if (iscalar==1) then
+
+        phi1(:,:,:,:) = zero
+     endif
+ 
+     if (iin.eq.0) then !empty domain
+ 
+        if (nrank==0) write(*,*) "Empty initial domain!"
+ 
+        ux1=zero; uy1=zero; uz1=zero
+ 
+     endif
+ 
+     if ((iin.eq.1).and.(sine_init.eq.1)) then !generation of a sinusoidal domain.
+ 
+        if (nrank==0) write(*,*) "Filled initial domain!"
+ 
+        ux1=zero; uy1=zero; uz1=zero
+ 
+        do k=1,xsize(3)
+           z=real((k+xstart(3)-1-1),mytype)*dz
+           do j=1,xsize(2)
+              y=real((j+xstart(2)-1-1),mytype)*dy
+              do i=1,xsize(1)
+                 x=real(i-1,mytype)*dx
+ 
+                 ux1(i,j,k)=+sin_prec(x)*cos_prec(y)*cos_prec(z)
+                 uy1(i,j,k)=-cos_prec(x)*sin_prec(y)*cos_prec(z)
+                 if (iscalar == 1) then
+                    phi1(i,j,k,1:numscalar)=sin_prec(x)*sin_prec(y)*cos_prec(z)
+                 endif
+                 uz1(i,j,k)=zero
+              enddo
+           enddo
+        enddo
+ 
+        call random_seed(size=isize)
+        allocate (seed(isize))
+        seed(:)=67
+        call random_seed(put=seed)
+        !     call random_number(ux1)
+        !     call random_number(uy1)
+        ! call random_number(uz1)
+ 
+        do k=1,xsize(3)
+           do j=1,xsize(2)
+              do i=1,xsize(1)
+                 !              ux1(i,j,k)=noise*(ux1(i,j,k)-half)
+                 !              uy1(i,j,k)=noise*(uy1(i,j,k)-half)
+                 ! uz1(i,j,k)=0.05*(uz1(i,j,k)-half)
+              enddo
+           enddo
+        enddo
+ 
+        !     !modulation of the random noise
+        !     do k=1,xsize(3)
+        !        do j=1,xsize(2)
+        !           if (istret.eq.0) y=(j+xstart(2)-1-1)*dy-yly/two
+        !           if (istret.ne.0) y=yp(j+xstart(2)-1)-yly/two
+        !           um=exp(-0.2*y*y)
+        !           do i=1,xsize(1)
+        !              ux1(i,j,k)=um*ux1(i,j,k)
+        !              uy1(i,j,k)=um*uy1(i,j,k)
+        !              uz1(i,j,k)=um*uz1(i,j,k)
+        !           enddo
+        !        enddo
+        !     enddo
+ 
+     endif
+ 
+     !  bxx1(j,k)=zero
+     !  bxy1(j,k)=zero
+     !  bxz1(j,k)=zero
+ 
+     !INIT FOR G AND U=MEAN FLOW + NOISE
+     do k=1,xsize(3)
+        do j=1,xsize(2)
+           do i=1,xsize(1)
+              ux1(i,j,k)=ux1(i,j,k)!+bxx1(j,k)
+              uy1(i,j,k)=uy1(i,j,k)!+bxy1(j,k)
+              uz1(i,j,k)=uz1(i,j,k)!+bxz1(j,k)
+           enddo
+        enddo
+     enddo
+ 
+ #ifdef DEBG
+     if (nrank  ==  0) write(*,*) '# init end ok'
+ #endif
+ 
+     
+
     if (iin.ne.0) then
         call system_clock(count=code)
         if (iin.eq.2) code=0
