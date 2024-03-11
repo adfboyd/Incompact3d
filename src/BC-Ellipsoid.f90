@@ -300,9 +300,15 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
               y=real((j+xstart(2)-1-1),mytype)*dy
               do i=1,xsize(1)
                  x=real(i-1,mytype)*dx
- 
-                 ux1(i,j,k)=+sin_prec(x)*cos_prec(y)*cos_prec(z)
-                 uy1(i,j,k)=-cos_prec(x)*sin_prec(y)*cos_prec(z)
+                    
+                 if (sine_x.eq.1) then 
+                    ux1(i,j,k)=+sin_prec(x*twopi)*cos_prec(y*twopi)*cos_prec(z*twopi)
+                 endif
+                 if (sine_y.eq.1) then 
+                    uy1(i,j,k)=-cos_prec(x*twopi)*sin_prec(y*twopi)*cos_prec(z*twopi)
+                 endif 
+                 if (sine_z.eq.1) then 
+                    uz1(i,j,k)=-sin_prec(x*twopi)*-cos_prec(y*twopi)*cos_prec(z*twopi)
                  if (iscalar == 1) then
                     phi1(i,j,k,1:numscalar)=sin_prec(x)*sin_prec(y)*cos_prec(z)
                  endif
