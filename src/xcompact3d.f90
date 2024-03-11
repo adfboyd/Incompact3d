@@ -37,14 +37,20 @@ program xcompact3d
    write(*,*) 'Outputting forces'
   end if 
 
-  do i = 1,100
-   x(i) = i
-  enddo
-  open(unit=3, file='testcsv.dat', status='new',action='write',iostat=ierr)
+  if (sine_init.eq.1) then
+   write(*,*) 'Generated Sinusoidal flow field.'
+  endif
 
-  do i = 1,100
-   write(3,*) x(i)
-  enddo
+  
+
+!   do i = 1,100
+!    x(i) = i
+!   enddo
+!   open(unit=3, file='testcsv.dat', status='new',action='write',iostat=ierr)
+
+!   do i = 1,100
+!    write(3,*) x(i)
+!   enddo
 
   
 

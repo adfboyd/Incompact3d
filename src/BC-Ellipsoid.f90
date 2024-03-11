@@ -232,7 +232,7 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
     USE param
     USE MPI
     USE ibm_param
-    use dbg_schemes, only: exp_prec
+    use dbg_schemes, only: exp_prec,cos_prec,sin_prec
     use ellipsoid_utils, only: NormalizeQuaternion,ellipInertiaCalculate,ellipMassCalculate
 
 
@@ -241,8 +241,11 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux1,uy1,uz1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),numscalar) :: phi1
 
-    real(mytype) :: y,um,eqr
+    real(mytype) :: y,um,eqr,x,z
     integer :: k,j,i,ii,is,code
+    integer, dimension (:), allocatable :: seed
+    integer ::  isize
+
 
     ! write(*,*) 'INSIDE INIT ELLIP'
 
@@ -309,6 +312,7 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
                  endif 
                  if (sine_z.eq.1) then 
                     uz1(i,j,k)=-sin_prec(x*twopi)*-cos_prec(y*twopi)*cos_prec(z*twopi)
+                 endif
                  if (iscalar == 1) then
                     phi1(i,j,k,1:numscalar)=sin_prec(x)*sin_prec(y)*cos_prec(z)
                  endif
@@ -366,9 +370,9 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
         enddo
      enddo
  
- #ifdef DEBG
+#ifdef DEBG
      if (nrank  ==  0) write(*,*) '# init end ok'
- #endif
+#endif
  
      
 
@@ -423,7 +427,7 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
 #endif
 
     return
-end subroutine init_ellip
+    end subroutine init_ellip
 !********************************************************************
 
 !############################################################################
