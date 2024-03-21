@@ -623,6 +623,6 @@ module ibm_param
   real(mytype) :: chord,thickness,omega
   integer :: sine_init, sine_x, sine_y, sine_z
   integer :: inana ! Analytical BC as Input
-  integer :: imove, nozdrift, force_csv
+  integer :: imove, nozdrift, force_csv, bodies_fixed
 end module ibm_param
 !############################################################################

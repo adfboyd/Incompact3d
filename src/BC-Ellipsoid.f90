@@ -313,10 +313,10 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
                  if (sine_z.eq.1) then 
                     uz1(i,j,k)=-sin_prec(x*twopi)*-cos_prec(y*twopi)*cos_prec(z*twopi)
                  endif
-                 if (iscalar == 1) then
-                    phi1(i,j,k,1:numscalar)=sin_prec(x)*sin_prec(y)*cos_prec(z)
-                 endif
-                 uz1(i,j,k)=zero
+                !  if (iscalar == 1) then
+                !     phi1(i,j,k,1:numscalar)=sin_prec(x)*sin_prec(y)*cos_prec(z)
+                !  endif
+                !  uz1(i,j,k)=zero
               enddo
            enddo
         enddo
