@@ -549,8 +549,8 @@ contains
                fac2   = (onepfive*uy1(i,j,k)-two*uy01(i,j,k)+half*uy11(i,j,k))*(one-ep1(i,j,k))
                fac3   = (onepfive*uz1(i,j,k)-two*uz01(i,j,k)+half*uz11(i,j,k))*(one-ep1(i,j,k))
 
-                call coriolis_force(angularVelocity,[fac1,fac2,fac3],coriolis)
-                call centrifugal_force(angularVelocity, [xm,ym,zm]-position,centrifugal)
+               !  call coriolis_force(angularVelocity,[fac1,fac2,fac3],coriolis)
+               !  call centrifugal_force(angularVelocity, [xm,ym,zm]-position,centrifugal)
                 !     The velocity time rate has to be relative to the cell center, 
                 !     and not to the nodes, because, here, we have an integral 
                 !     relative to the volume, and, therefore, this has a sense 
@@ -739,7 +739,7 @@ contains
        !AB
        if ((icvlf(iv).ge.ystart(1)).and.(icvlf(iv).le.yend(1))) then
           i=icvlf(iv)-ystart(1)+1
-          ii=icvlf(iv)-1
+          ii=icvlf(iv)-1 !!No -1?
           xm=real(ii,mytype)*dx
           do k=zcvlf_ly(iv),zcvrt_ly(iv)
              kk=ystart(3)+k-1
@@ -809,7 +809,7 @@ contains
              fdix=zero
              fdiy=zero
              fdiz=zero
-             do j=jcvlw_ly(iv),jcvup_ly(iv)-1 !!!What's going on here?
+             do j=jcvlw_ly(iv),jcvup_ly(iv)-1 
                 jj=ystart(2)+j-1
                 ym=real(jj,mytype)*dy
                !  write(*,*) 'Calculating force at right x boundary', [xm,ym,zm]
@@ -869,7 +869,7 @@ contains
          fdiy=zero
          fdiz=zero
          do j=jcvlw_lx(iv),jcvup_lx(iv)
-          kk = xstart(2)-1+j
+         !  kk = xstart(2)-1+j
           jj = xstart(2)-1+j
 
           ym=real(jj,mytype)*dy
@@ -1003,9 +1003,9 @@ contains
        mom2 = sum(tunsty(:) + tconvy(:) + tconvy2(:))
        mom3 = sum(tunstz(:) + tconvz(:) + tconvz2(:))
   
-       dra1 = 2.0*(sum(tdiffx) + sum(tdiffx2) + tp1 - mom1)
-       dra2 = 2.0*(sum(tdiffy) + sum(tdiffy2) + tp2 - mom2)
-       dra3 = 2.0*(sum(tdiffz) + sum(tdiffz2) + tp3 - mom3)
+       dra1 = (sum(tdiffx) + sum(tdiffx2) + tp1 - mom1)
+       dra2 = (sum(tdiffy) + sum(tdiffy2) + tp2 - mom2)
+       dra3 = (sum(tdiffz) + sum(tdiffz2) + tp3 - mom3)
        
        do k=1,zsize(3)
 
@@ -1036,7 +1036,7 @@ contains
       endif
        if ((nrank .eq. 0).and.(record_var.eq.1)) then
          ! write(*,*) 'TIME STEP = ', itime
-          write(38+(iv-1),*) t,dra1,dra2,dra3
+          write(38+(iv-1),*) t,dra1,dra2,dra3, sum(tdiffx), sum(tdiffx2), tp1, -mom1, -sum(tunstx(:)), -sum(tconvx(:)), -sum(tconvx2(:))
          !  write(*,*) 'written to file number', 38+(iv-1), t, dra1,dra2,dra3
           call flush(38+(iv-1))
        endif
