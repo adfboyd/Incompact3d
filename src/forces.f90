@@ -559,6 +559,9 @@ contains
                 !  tsumx = tsumx+(fac1-coriolis(1)-centrifugal(1))*dx*del_y(j+(xstart(2)-1))*dz/dt    !tsumx+fac*dx*dy/dt
                 tsumx = tsumx+fac1*dx*del_y(j+xstart(2)-1)*dz/dt
                 !sumx(k) = sumx(k)+dudt1*dx*dy
+                if ((xstart(3)-1+k).eq.(15)) then
+                  write(*,*) 'at Z = 15, tsumx = ', fac1*dx*del_y(j+xstart(2)-1)*dz/dt,  ' ij = ', i, j
+                end if 
 
                 !         fac   = (1.5*uy1(i,j,k)-2.0*uy01(i,j,k)+0.5*uy11(i,j,k))*epcv1(i,j,k)
                !  tsumy = tsumy+(fac2-coriolis(2)-centrifugal(2))*dx*del_y(j+(xstart(2)-1))*dz/dt !tsumy+fac*dx*dy/dt
@@ -570,7 +573,7 @@ contains
              enddo
           enddo
           tunstxl(xstart(3)-1+k)=tsumx
-          write(*,*) 'At z = ', xstart(3)-1+k, ' tsumx = ', tsumx
+         !  write(*,*) 'At z = ', xstart(3)-1+k, ' tsumx = ', tsumx
 
           tunstyl(xstart(3)-1+k)=tsumy
           tunstzl(xstart(3)-1+k)=tsumz
@@ -1197,6 +1200,9 @@ contains
                fac   = (onepfive*ux1(i,j,k)-two*ux01(i,j,k)+half*ux11(i,j,k))*(one-ep1(i,j,k))
                tsumx = tsumx+fac*dx*del_y(j+(xstart(2)-1))/dt    !tsumx+fac*dx*dy/dt
                !sumx(k) = sumx(k)+dudt1*dx*dy
+               if ((xstart(3)-1+k).eq.(15)) then
+                  write(*,*) 'at z = 15, tsumx = ', fac*dx*del_y(j+(xstart(2)-1))/dt * dz, ' ij = ', i, j
+                end if 
 
                !         fac   = (1.5*uy1(i,j,k)-2.0*uy01(i,j,k)+0.5*uy11(i,j,k))*epcv1(i,j,k)
                fac   = (onepfive*uy1(i,j,k)-two*uy01(i,j,k)+half*uy11(i,j,k))*(one-ep1(i,j,k))
@@ -1205,7 +1211,8 @@ contains
             enddo
          enddo
          tunstxl(xstart(3)-1+k)=tsumx
-         write(*,*) 'At z = ', xstart(3)-1+k, ' tsumx = ', tsumx*dz, 'cylinder routine'
+         ! write(*,*) 'At z = ', xstart(3)-1+k, ' tsumx = ', tsumx*dz, 'cylinder routine'
+         ! write(*,*) 'Looped over x = ', icvlf_lx(iv), icvrt_lx(iv), ' and y = ', jcvlw_lx(iv), jcvup_lx(iv)
          tunstyl(xstart(3)-1+k)=tsumy
       enddo
       call MPI_ALLREDUCE(tunstxl,tunstx,nz,real_type,MPI_SUM,MPI_COMM_WORLD,code)
