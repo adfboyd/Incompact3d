@@ -559,9 +559,9 @@ contains
                 !  tsumx = tsumx+(fac1-coriolis(1)-centrifugal(1))*dx*del_y(j+(xstart(2)-1))*dz/dt    !tsumx+fac*dx*dy/dt
                 tsumx = tsumx+fac1*dx*del_y(j+xstart(2)-1)*dz/dt
                 !sumx(k) = sumx(k)+dudt1*dx*dy
-                if ((xstart(3)-1+k).eq.(15)) then
-                  write(*,*) 'at Z = 15, tsumx = ', fac1*dx*del_y(j+xstart(2)-1)*dz/dt,  ' ij = ', i, j
-                end if 
+               !  if ((xstart(3)-1+k).eq.(15)) then
+               !    write(*,*) 'at Z = 15, tsumx = ', fac1*dx*del_y(j+xstart(2)-1)*dz/dt,  ' ij = ', i, j
+               !  end if 
 
                 !         fac   = (1.5*uy1(i,j,k)-2.0*uy01(i,j,k)+0.5*uy11(i,j,k))*epcv1(i,j,k)
                !  tsumy = tsumy+(fac2-coriolis(2)-centrifugal(2))*dx*del_y(j+(xstart(2)-1))*dz/dt !tsumy+fac*dx*dy/dt
@@ -1055,18 +1055,18 @@ contains
       !  endif
     enddo
 
-    do k = 1, xsize(3)
-       do j = 1, xsize(2)
-          do i = 1, xsize(1)
-             ux11(i,j,k)=ux01(i,j,k)
-             uy11(i,j,k)=uy01(i,j,k)
-             uz11(i,j,k)=uz01(i,j,k)
-             ux01(i,j,k)=ux1(i,j,k)
-             uy01(i,j,k)=uy1(i,j,k)
-             uz01(i,j,k)=uz1(i,j,k)
-          enddo
-       enddo
-    enddo
+   !  do k = 1, xsize(3) !!Only uncommenting so it's not done twice by forces_cyl as well.
+   !     do j = 1, xsize(2)
+   !        do i = 1, xsize(1)
+   !           ux11(i,j,k)=ux01(i,j,k)
+   !           uy11(i,j,k)=uy01(i,j,k)
+   !           uz11(i,j,k)=uz01(i,j,k)
+   !           ux01(i,j,k)=ux1(i,j,k)
+   !           uy01(i,j,k)=uy1(i,j,k)
+   !           uz01(i,j,k)=uz1(i,j,k)
+   !        enddo
+   !     enddo
+   !  enddo
 
     return
 
@@ -1396,8 +1396,8 @@ contains
 
          xmom    = tunstx(k)+tconvx(k)
          ymom    = tunsty(k)+tconvy(k)
-         xDrag(k) = two*(tdiffx(k)+tpresx(k)-xmom)
-         yLift(k) = two*(tdiffy(k)+tpresy(k)-ymom)
+         xDrag(k) = (tdiffx(k)+tpresx(k)-xmom)
+         yLift(k) = (tdiffy(k)+tpresy(k)-ymom)
 
       enddo
 
@@ -1417,7 +1417,7 @@ contains
       ! endif
       if (nrank .eq. 0) then
          ! write(*,*) 'TIME STEP = ', itime
-          write(42+(iv-1),*) t,sum(xDrag(:)),sum(yLift(:)), sum(tdiffx)*dz, sum(tpresx)*dz, (sum(tunstx)+sum(tconvx))*dz, sum(tunstx(:))*dz, sum(tconvx(:))*dz
+          write(42+(iv-1),*) t,sum(xDrag(:))*dz,sum(yLift(:)), sum(tdiffx)*dz, sum(tpresx)*dz, (sum(tunstx)+sum(tconvx))*dz, sum(tunstx(:))*dz, sum(tconvx(:))*dz
          !  write(*,*) 'written to file number', 38+(iv-1), t, dra1,dra2,dra3
           call flush(42+(iv-1))
        endif
