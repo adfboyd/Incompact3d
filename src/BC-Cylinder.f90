@@ -75,7 +75,13 @@ contains
           ym=yp(j)
           do i=nxi,nxf
              xm=real(i-1,mytype)*dx
-             r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+             if (y_cyl.eq.0) then 
+               r=sqrt_prec((xm-cexx)**two+(ym-ceyy)**two)
+             else if (y_cyl.eq.1) then
+               r=sqrt_prec((xm-cexx)**two+(zm-cezz)**two)
+             endif
+
+
              if (r-ra.gt.zeromach) then
                 cycle
              endif

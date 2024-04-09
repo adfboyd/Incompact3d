@@ -17,7 +17,7 @@ program xcompact3d
   use ibm, only : body
   use genepsi, only : genepsi3d
   use ellipsoid_utils, only: lin_step, ang_step, QuaternionNorm
-  use forces, only : force, force_cyl, init_forces, iforces,update_forces, xld,xrd,yld,yud,zld,zrd
+  use forces, only : force, force_cyl, force_cyl_y, init_forces, iforces,update_forces, xld,xrd,yld,yud,zld,zrd
   implicit none
   real(mytype)  :: dummy,drag,lift,lat,grav_effy,grav_effx,grav_effz
   integer :: iounit,ierr,i
@@ -81,8 +81,13 @@ program xcompact3d
                zld(1) = position(3) - shape(1) * ra * cvl_scalar
                zrd(1) = position(3) + shape(1) * ra * cvl_scalar
                if (itype.eq.itype_cyl) then
-                  zld(1) = 0.0_mytype
-                  zrd(1) = nz*dz 
+                  if (y_cyl.eq.0) then 
+                     zld(1) = 0.0_mytype
+                     zrd(1) = nz*dz 
+                  else if (y_cyl.eq.1) then 
+                     yld(1) = 0.0_mytype
+                     yud(1) = ny*dy
+                  endif
                end if
 
                if (itime.eq.ifirst) then 
@@ -125,7 +130,11 @@ program xcompact3d
       !   write(*,*) 'Going to call force from xcompact3d, itr = ', itr
       !   endif 
         call force(ux1,uy1,uz1,ep1,drag,lift,lat,1)
-        call force_cyl(ux1,uy1,ep1)
+        if (y_cyl.eq.0) then 
+         call force_cyl(ux1,uy1,ep1)
+        else if (y_cyl.eq.1) then
+         call force_cyl_y(ux1,uz1,ep1)
+        endif
         grav_effx = grav_x*(rho_s-1.0)
         grav_effy = grav_y*(rho_s-1.0)
         grav_effz = grav_z*(rho_s-1.0)

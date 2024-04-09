@@ -738,7 +738,12 @@ subroutine cubsply(u,lind)
                  jy=1
                  jpolf=ny
                  do while(yp(jy).lt.yf(j,i,k))  
+                  ! write(*,*) 'yp(jy) = ', yp(jy), 'yf = ', yf(j,i,k)
                     jy=jy+1
+                    if (jy.gt.ny) then  !!Issue with loop not terminating fixed here
+                     jy = ny 
+                     exit
+                     endif
                  enddo
                  jpolf=jy-1
                  if(nyfpif(j,i,k).lt.npif)nypif=nyfpif(j,i,k)
