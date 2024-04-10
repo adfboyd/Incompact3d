@@ -92,7 +92,7 @@ contains
        icvrt(iv) = nint(xrd(iv)/dx)+1
        if (istret.eq.0) then 
          jcvlw(iv) = nint(yld(iv)/dy)+1
-         jcvup(iv) = nint(yud(iv)/dy)+1
+         jcvup(iv) = min(nint(yud(iv)/dy)+1,ny)
        else
          stp1=0
          stp2=0
@@ -225,7 +225,7 @@ contains
       icvrt(iv) = nint(xrd(iv)/dx)+1
       if (istret.eq.0) then 
         jcvlw(iv) = nint(yld(iv)/dy)+1
-        jcvup(iv) = nint(yud(iv)/dy)+1
+        jcvup(iv) = min(nint(yud(iv)/dy)+1,ny)
       else
         stp1=0
         stp2=0
@@ -557,7 +557,7 @@ contains
                 !     of a "source".
                 !         fac   = (1.5*ux1(i,j,k)-2.0*ux01(i,j,k)+0.5*ux11(i,j,k))*epcv1(i,j,k)
                 !  tsumx = tsumx+(fac1-coriolis(1)-centrifugal(1))*dx*del_y(j+(xstart(2)-1))*dz/dt    !tsumx+fac*dx*dy/dt
-                tsumx = tsumx+fac1*dx*del_y(j+xstart(2)-1)*dz/dt
+                tsumx = tsumx+fac1*dx*dy*dz/dt
                 !sumx(k) = sumx(k)+dudt1*dx*dy
                !  if ((xstart(3)-1+k).eq.(15)) then
                !    write(*,*) 'at Z = 15, tsumx = ', fac1*dx*del_y(j+xstart(2)-1)*dz/dt,  ' ij = ', i, j
@@ -565,11 +565,11 @@ contains
 
                 !         fac   = (1.5*uy1(i,j,k)-2.0*uy01(i,j,k)+0.5*uy11(i,j,k))*epcv1(i,j,k)
                !  tsumy = tsumy+(fac2-coriolis(2)-centrifugal(2))*dx*del_y(j+(xstart(2)-1))*dz/dt !tsumy+fac*dx*dy/dt
-                tsumy = tsumy+fac2*dx*del_y(j+xstart(2)-1)*dz/dt
+                tsumy = tsumy+fac2*dx*dy*dz/dt
                 !sumy(k) = sumy(k)+dudt1*dx*dy
 
                !  tsumz = tsumz+(fac3-coriolis(3)-centrifugal(3))*dx*del_y(j+(xstart(2)-1))*dz/dt     
-                tsumz = tsumz+fac3*dx*del_y(j+xstart(2)-1)*dz/dt
+                tsumz = tsumz+fac3*dx*dy*dz/dt
              enddo
           enddo
           tunstxl(xstart(3)-1+k)=tsumx
@@ -623,6 +623,7 @@ contains
        tdiffzl2=zero  
        !BC and AD : x-pencils
        !AD
+       if (y_cyl.eq.0) then 
        if ((jcvlw(iv).ge.xstart(2)).and.(jcvlw(iv).le.xend(2))) then
           j=jcvlw(iv)-xstart(2)+1
           jj=jcvlw(iv)
@@ -740,6 +741,7 @@ contains
 
           enddo
        endif
+      endif
        !AB and DC : y-pencils
        !AB
        if ((icvlf(iv).ge.ystart(1)).and.(icvlf(iv).le.yend(1))) then
@@ -861,7 +863,7 @@ contains
 
        !Left & Right : 
        !Left
-       if (itype.eq.itype_ellip) then 
+       if ((itype.eq.itype_ellip).or.(y_cyl.eq.1)) then 
          if ((zcvlf(iv).ge.xstart(3)).and.(zcvlf(iv).le.xend(3))) then
             k=zcvlf(iv)-xstart(3)+1
             kk=zcvlf(iv)
@@ -1055,18 +1057,18 @@ contains
       !  endif
     enddo
 
-   !  do k = 1, xsize(3) !!Only uncommenting so it's not done twice by forces_cyl as well.
-   !     do j = 1, xsize(2)
-   !        do i = 1, xsize(1)
-   !           ux11(i,j,k)=ux01(i,j,k)
-   !           uy11(i,j,k)=uy01(i,j,k)
-   !           uz11(i,j,k)=uz01(i,j,k)
-   !           ux01(i,j,k)=ux1(i,j,k)
-   !           uy01(i,j,k)=uy1(i,j,k)
-   !           uz01(i,j,k)=uz1(i,j,k)
-   !        enddo
-   !     enddo
-   !  enddo
+    do k = 1, xsize(3) !!Only uncommenting so it's not done twice by forces_cyl as well.
+       do j = 1, xsize(2)
+          do i = 1, xsize(1)
+             ux11(i,j,k)=ux01(i,j,k)
+             uy11(i,j,k)=uy01(i,j,k)
+             uz11(i,j,k)=uz01(i,j,k)
+             ux01(i,j,k)=ux1(i,j,k)
+             uy01(i,j,k)=uy1(i,j,k)
+             uz01(i,j,k)=uz1(i,j,k)
+          enddo
+       enddo
+    enddo
 
     return
 
@@ -1429,16 +1431,16 @@ contains
       ! endif
    enddo
 
-   do k = 1, xsize(3)
-      do j = 1, xsize(2)
-         do i = 1, xsize(1)
-            ux11(i,j,k)=ux01(i,j,k)
-            uy11(i,j,k)=uy01(i,j,k)
-            ux01(i,j,k)=ux1(i,j,k)
-            uy01(i,j,k)=uy1(i,j,k)
-         enddo
-      enddo
-   enddo
+   ! do k = 1, xsize(3)
+   !    do j = 1, xsize(2)
+   !       do i = 1, xsize(1)
+   !          ux11(i,j,k)=ux01(i,j,k)
+   !          uy11(i,j,k)=uy01(i,j,k)
+   !          ux01(i,j,k)=ux1(i,j,k)
+   !          uy01(i,j,k)=uy1(i,j,k)
+   !       enddo
+   !    enddo
+   ! enddo
 
    return
 
@@ -1532,7 +1534,7 @@ contains
      do iv=1,nvol
         if ((nrank .eq. 0)) then
            write(filename,"('forces_cyl.dat',I1.1)") iv
-           open(38+(iv-1),file=filename,status='unknown',form='formatted')
+           open(42+(iv-1),file=filename,status='unknown',form='formatted')
            ! write(*,*) 'Opened file: ', filename, 'number = ', 38+(iv-1)
         endif
      enddo
@@ -1695,7 +1697,7 @@ contains
          i=icvlf(iv)-ystart(1)+1
          ii=icvlf(iv)-1 !!No -1?
          xm=real(ii,mytype)*dx
-         do j=1,ysize(2)
+         do j=1,ysize(2)-1
             jj=ystart(2)+j-1
             ym=real(jj,mytype)*dz
            
@@ -1753,7 +1755,7 @@ contains
          i=icvrt(iv)-ystart(1)+1
          ii=icvrt(iv)
          xm=real(ii,mytype)*dx
-         do j=1,ysize(2)
+         do j=1,ysize(2)-1
             jj=ystart(2)+j-1
             ym=real(jj,mytype)*dy
             
@@ -2014,7 +2016,7 @@ contains
         ! write(*,*) 'TIME STEP = ', itime
          ! write(42+(iv-1),*) t,sum(xDrag(:))*dz,sum(yLift(:)), sum(tdiffx)*dz, sum(tpresx)*dz, (sum(tunstx)+sum(tconvx))*dz, sum(tunstx(:))*dz, sum(tconvx(:))*dz
 
-         write(42+(iv-1),*) t,sum(xDrag(:))*dy ,sum(zLat(:))*dy, sum(tdiffx)*dy,sum(tpresx)*dy,(sum(tunstx)+sum(tconvx))*dy, sum(tunstx(:))*dy, sum(tconvx(:))*dy
+         write(42+(iv-1),*) t,sum(xDrag(:))*dy ,sum(zLat(:))*dy, sum(tdiffx)*dy,sum(tpresx)*dy,(sum(tunstx(:))+sum(tconvx(:)))*dy, sum(tunstx(:))*dy, sum(tconvx(:))*dy
         !  write(*,*) 'written to file number', 38+(iv-1), t, dra1,dra2,dra3
          call flush(42+(iv-1))
       endif
@@ -2026,18 +2028,18 @@ contains
      !  endif
    enddo
 
-  !  do k = 1, xsize(3) !!Only uncommenting so it's not done twice by forces_cyl as well.
-  !     do j = 1, xsize(2)
-  !        do i = 1, xsize(1)
-  !           ux11(i,j,k)=ux01(i,j,k)
-  !           uy11(i,j,k)=uy01(i,j,k)
-  !           uz11(i,j,k)=uz01(i,j,k)
-  !           ux01(i,j,k)=ux1(i,j,k)
-  !           uy01(i,j,k)=uy1(i,j,k)
-  !           uz01(i,j,k)=uz1(i,j,k)
-  !        enddo
-  !     enddo
-  !  enddo
+   ! do k = 1, xsize(3) !!Only uncommenting so it's not done twice by forces_cyl as well.
+   !    do j = 1, xsize(2)
+   !       do i = 1, xsize(1)
+   !          ux11(i,j,k)=ux01(i,j,k)
+   !          ! uy11(i,j,k)=uy01(i,j,k)
+   !          uz11(i,j,k)=uz01(i,j,k)
+   !          ux01(i,j,k)=ux1(i,j,k)
+   !          ! uy01(i,j,k)=uy1(i,j,k)
+   !          uz01(i,j,k)=uz1(i,j,k)
+   !       enddo
+   !    enddo
+   ! enddo
 
    return
 

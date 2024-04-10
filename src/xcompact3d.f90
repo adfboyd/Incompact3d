@@ -129,12 +129,13 @@ program xcompact3d
       !   if (nrank.eq.0) then 
       !   write(*,*) 'Going to call force from xcompact3d, itr = ', itr
       !   endif 
-        call force(ux1,uy1,uz1,ep1,drag,lift,lat,1)
         if (y_cyl.eq.0) then 
          call force_cyl(ux1,uy1,ep1)
         else if (y_cyl.eq.1) then
          call force_cyl_y(ux1,uz1,ep1)
         endif
+        call force(ux1,uy1,uz1,ep1,drag,lift,lat,1)
+        
         grav_effx = grav_x*(rho_s-1.0)
         grav_effy = grav_y*(rho_s-1.0)
         grav_effz = grav_z*(rho_s-1.0)

@@ -20,7 +20,7 @@ module cyl
 
 contains
 
-  subroutine geomcomplex_cyl(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,remp)
+  subroutine geomcomplex_cyl(epsi,nxi,nxf,ny,nyi,nyf,nzi,nzf,dx,yp,dz,remp)
 
     use decomp_2d, only : mytype
     use param, only : one, two, ten
@@ -33,7 +33,7 @@ contains
     integer                    :: nxi,nxf,ny,nyi,nyf,nzi,nzf
     real(mytype),dimension(nxi:nxf,nyi:nyf,nzi:nzf) :: epsi
     real(mytype),dimension(ny) :: yp
-    real(mytype)               :: dx
+    real(mytype)               :: dx,dz
     real(mytype)               :: remp
     integer                    :: i,j,k
     real(mytype)               :: xm,ym,zm,r,rads2,kcon

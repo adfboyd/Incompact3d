@@ -874,8 +874,10 @@ subroutine cubsplz(u,lind)
               if(zi(k,i,j).gt.0.)then ! Immersed Object
                  inxi=0
                  kz=zi(k,i,j)/dz+1
+               !   write(*,*) 'kz = ', kz
                  kpoli=kz+1
                  if(nzipif(k,i,j).lt.npif)nzpif=nzipif(k,i,j)
+               !   write(*,*) 'nzpif = ', nzpif
                  do kpif=1,nzpif
                     ia=ia+1
                     if(izap.eq.1)then ! Skip First Points

@@ -63,7 +63,7 @@ contains
 
     IF (itype.EQ.itype_cyl) THEN
 
-       CALL geomcomplex_cyl(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, remp)
+       CALL geomcomplex_cyl(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, dz, remp)
 
     ELSEIF (itype.EQ.itype_hill) THEN
 
