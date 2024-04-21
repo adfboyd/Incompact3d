@@ -2028,7 +2028,7 @@ contains
      !  endif
    enddo
 
-   ! do k = 1, xsize(3) !!Only uncommenting so it's not done twice by forces_cyl as well.
+   ! do k = 1, xsize(3) !!Only commenting so it's not done twice by forces as well.
    !    do j = 1, xsize(2)
    !       do i = 1, xsize(1)
    !          ux11(i,j,k)=ux01(i,j,k)
