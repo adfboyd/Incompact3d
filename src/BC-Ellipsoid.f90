@@ -130,7 +130,7 @@ subroutine inflow (phi)
 
     implicit none
 
-    integer  :: j,k,is
+    integer  :: i,j,k,is
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),numscalar) :: phi
 
     !call random_number(bxo)
@@ -143,6 +143,19 @@ subroutine inflow (phi)
         bxz1(j,k)=zero+bzo(j,k)*inflow_noise
         enddo
     enddo
+
+    if (shear_flow_ybc.eq.1) then 
+        do k=1,xsize(3)
+            do i=1,xsize(1)
+                byxn(i,k)=+shear_velocity
+            enddo
+        enddo
+        do k=1,xsize(3)
+            do i=1,xsize(1)
+                byx1(i,k)=-shear_velocity
+            enddo 
+        enddo 
+    endif   
 
     if (iscalar.eq.1) then
         do is=1, numscalar
@@ -245,7 +258,7 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux1,uy1,uz1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),numscalar) :: phi1
 
-    real(mytype) :: y,um,eqr
+    real(mytype) :: y,um,eqr,temp_vel
     integer :: k,j,i,ii,is,code
 
     ! write(*,*) 'INSIDE INIT ELLIP'
@@ -279,6 +292,8 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
 
     ux1=zero; uy1=zero; uz1=zero
 
+    
+
     if (iin.ne.0) then
         call system_clock(count=code)
         if (iin.eq.2) code=0
@@ -293,6 +308,7 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
         do j=1,xsize(2)
             do i=1,xsize(1)
                 ux1(i,j,k)=init_noise*(ux1(i,j,k)-0.5)
+                
                 uy1(i,j,k)=init_noise*(uy1(i,j,k)-0.5)
                 uz1(i,j,k)=init_noise*(uz1(i,j,k)-0.5)
             enddo
@@ -319,6 +335,11 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
         do j=1,xsize(2)
         do i=1,xsize(1)
             ux1(i,j,k)=ux1(i,j,k)+u1
+            if (shear_flow_ybc.eq.1) then 
+                temp_vel=(real((j+xstart(2)-1-1),mytype)*dy-yly/2.)/(yly/2.0)*shear_velocity
+                ux1(i,j,k)=ux1(i,j,k)+temp_vel
+                ! write(*,*) "shear velocity at y = ", real((j+xstart(2)-1-1),mytype)*dy, " = ",  temp_vel
+            endif
             uy1(i,j,k)=uy1(i,j,k)
             uz1(i,j,k)=uz1(i,j,k)
         enddo
