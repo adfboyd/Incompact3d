@@ -1664,9 +1664,9 @@ contains
               uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(2) - rotationalComponent(2)
               uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(3) - rotationalComponent(3)
 
-              fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
-              fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
-              fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+              fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
+              fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
+              fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
 
               !pressure
               prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
@@ -1681,9 +1681,9 @@ contains
               dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
               dwdzmid = half*(ti1(i,j,k)+ti1(i+1,j,k))
               
-              fdix = fdix + (xnu*(dvdzmid+dwdymid)*radial(3)-xnu*(two*dwdzmid)*radial(2))*dx*dy
-              fdiy = fdiy + (xnu*(two*dwdzmid)*radial(1)-xnu*(dudzmid+dwdxmid)*radial(3))*dx*dy
-              fdiz = fdiz + (xnu*(dudzmid+dwdxmid)*radial(2)-xnu*(dvdzmid+dwdymid)*radial(1))*dx*dy
+              fdix = fdix - (xnu*(dvdzmid+dwdymid)*radial(3)-xnu*(two*dwdzmid)*radial(2))*dx*dy
+              fdiy = fdiy - (xnu*(two*dwdzmid)*radial(1)-xnu*(dudzmid+dwdxmid)*radial(3))*dx*dy
+              fdiz = fdiz - (xnu*(dudzmid+dwdxmid)*radial(2)-xnu*(dvdzmid+dwdymid)*radial(1))*dx*dy
 
 
             !   fdix = fdix +(xnu*(dudzmid+dwdxmid)*dx*dy)
@@ -1738,9 +1738,9 @@ contains
             uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(2) - rotationalComponent(2)
             uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(3) - rotationalComponent(3)
 
-            fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
-            fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
-            fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+            fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
+            fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
+            fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
 
 
               !pressure
