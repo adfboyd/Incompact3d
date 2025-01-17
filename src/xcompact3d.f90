@@ -16,12 +16,45 @@ program xcompact3d
   use ibm_param
   use ibm, only : body
   use genepsi, only : genepsi3d
-  use ellipsoid_utils, only: lin_step, ang_step
-
+  use ellipsoid_utils, only: lin_step, ang_step, QuaternionNorm
+  use forces, only : force, init_forces, iforces,update_forces, xld,xrd,yld,yud,zld,zrd,torque_calc,nvol
   implicit none
+  real(mytype)  :: dummy,drag(10),lift(10),lat(10),grav_effy(10),grav_effx(10),grav_effz(10),xtorq(10),ytorq(10),ztorq(10),maxrad
+  integer :: iounit,ierr,i
+  real, dimension(100) :: x
+  character(len=30) :: filename!, filename2
+
 
 
   call init_xcompact3d()
+
+  iounit = 135
+  !Print forces out on ellip
+  if ((nrank==0).and.(force_csv.eq.1)) then 
+   open(unit=20, file='force_out.dat', status='unknown',form='formatted')
+   ! if (ierr /= 0) then
+   !    print *, 'Error opening file.'
+   !    stop
+   ! end if
+   write(*,*) 'Outputting forces' 
+  end if
+
+  if (nrank==0) then
+   do i = 1,nbody
+      write(filename,"('body.dat',I1.1)") i
+      open(unit=11+i, file=filename, status='unknown', form='formatted')
+   enddo
+  endif
+!   do i = 1,100
+!    x(i) = i
+!   enddo
+!   open(unit=3, file='testcsv.dat', status='new',action='write',iostat=ierr)
+
+!   do i = 1,100
+!    write(3,*) x(i)
+!   enddo
+
+  
 
   do itime=ifirst,ilast
      !t=itime*dt
@@ -39,6 +72,7 @@ program xcompact3d
         call apply_spatial_filter(ux1,uy1,uz1,phi1)
      endif
 
+
      do itr=1,iadvance_time
 
         call set_fluid_properties(rho1,mu1)
@@ -47,6 +81,24 @@ program xcompact3d
         if (imove.eq.1) then ! update epsi for moving objects
           if ((iibm.eq.2).or.(iibm.eq.3)) then
              call genepsi3d(ep1)
+             do i = 1,nobjmax 
+               maxrad = max(shape(i,1),shape(i,2),shape(i,3))
+               if (iforces.eq.1) then
+                  xld(i) = position(i,1) - maxrad * ra(i) * cvl_scalar
+                  xrd(i) = position(i,1) + maxrad * ra(i) * cvl_scalar
+                  yld(i) = position(i,2) - maxrad * ra(i) * cvl_scalar
+                  yud(i) = position(i,2) + maxrad * ra(i) * cvl_scalar
+                  zld(i) = position(i,3) - maxrad * ra(i) * cvl_scalar
+                  zrd(i) = position(i,3) + maxrad * ra(i) * cvl_scalar
+                  ! write(*,*) "CV bounds = ", xld(i), xrd(i), yld(i), yud(i), zld(i), zrd(i)
+                  
+               endif
+            enddo
+            if (itime.eq.ifirst) then 
+               call init_forces()
+            else 
+               call update_forces()
+            endif
           else if (iibm.eq.1) then
              call body(ux1,uy1,uz1,ep1)
           endif
@@ -77,18 +129,85 @@ program xcompact3d
         call test_flow(rho1,ux1,uy1,uz1,phi1,ep1,drho1,divu3)
 
         !Add force calculation here
+      !   if (nrank.eq.0) then 
+      !   write(*,*) 'Going to call force from xcompact3d, itr = ', itr
+      !   endif 
+        call force(ux1,uy1,uz1,ep1,drag,lift,lat,1)
+        grav_effx = grav_x*(rho_s-1.0)
+        grav_effy = grav_y*(rho_s-1.0)
+        grav_effz = grav_z*(rho_s-1.0)
+        do i = 1,nbody
+         linearForce(i,:) = [drag(i)-grav_effx(i), lift(i)-grav_effy(i), lat(i)-grav_effz(i)]
+        enddo
+        if (nozdrift==1) then
+            linearForce(:,3)=zero
+        endif
 
-        linearAcceleration(:)=zero
-        torque(:)=zero
+        if (bodies_fixed==1) then
+            linearForce(:,:)=zero
+        endif
 
-        call lin_step(position,linearVelocity,linearAcceleration,dt,position_1,linearVelocity_1)
-        call ang_step(orientation,angularVelocity,torque,dt,orientation_1,angularVelocity_1)
+        if ((nrank==0).and.(force_csv.eq.1)) then
+         ! open(unit=20, file='force_out.dat', action='write')
+         write(20, *) linearForce(1,1), linearForce(1,2), linearForce(1,3)
+         write(*,*) 'Writing forces', linearForce(1,1), linearForce(1,2), linearForce(1,3)
+         flush(20)
+        endif 
+        
+        
+        if (torques_flag.eq.1) then 
+         call torque_calc(ux1,uy1,uz1,ep1,xtorq,ytorq,ztorq,1)
+        endif 
+        if (orientations_free.eq.1) then 
+         do i = 1,nvol 
+            torque(i,:) = [xtorq(i), ytorq(i), ztorq(i)]
+         enddo
+         if (ztorq_only.eq.1) then
+            torque(:,1) = zero
+            torque(:,2) = zero
+         endif
+        else 
+         torque(:,:) = zero
+        endif
+      !   if (nrank==0) then
 
-        position = position_1
-        linearVelocity = linearVelocity_1
+      !   if (bodies_fixed==0) then 
+        do i = 1,nvol
 
-        orientation = orientation_1
-        angularVelocity = angularVelocity_1
+         call lin_step(position(i,:),linearVelocity(i,:),linearForce(i,:),ellip_m(i),dt,position_1,linearVelocity_1)
+         call ang_step(orientation(i,:),angularVelocity(i,:),torque(i,:),inertia(i,:,:),dt,orientation_1,angularVelocity_1)
+        
+         position(i,:) = position_1
+         linearVelocity(i,:) = linearVelocity_1
+
+         orientation(i,:) = orientation_1
+         angularVelocity(i,:) = angularVelocity_1
+        enddo
+
+
+      if ((nrank==0).and.(mod(itime,ilist)==0)) then
+         do i = 1,nbody
+            write(11+i ,*) t, position(i,1), position(i,2), position(i,3), orientation(i,1), orientation(i,2), orientation(i,3), orientation(i,4), linearVelocity(i,1), linearVelocity(i,2), linearVelocity(i,3), angularVelocity(i,2), angularVelocity(i,3), angularVelocity(i,4), linearForce(i,1), linearForce(i,2), linearForce(i,3), torque(i,1), torque(i,2), torque(i,3)
+            flush(11+i)
+         enddo
+      endif
+
+         if ((nrank==0).and.(mod(itime,ilist)==0)) then 
+            do i = 1,nbody
+               write(*,*) "Body", i
+               write(*,*) "Position =         ", position(i,:)
+               write(*,*) "Orientation =      ", orientation(i,:)
+               write(*,*) "Linear velocity =  ", linearVelocity(i,:)
+               write(*,*) "Angular velocity = ", angularVelocity(i,:)
+               write(*,*) "Linear Force = ", linearForce(i,:)
+               write(*,*) "Torque = ", torque(i,:)
+            enddo
+         ! call QuaternionNorm(angularVelocity,dummy)
+
+         ! write(*,*) 'Norm of angvel = ', dummy
+         endif   
+
+      !   endif 
 
       !   if (nrank==0) then 
       !    write(*,*) 'Centroid position is ', position
@@ -104,6 +223,8 @@ program xcompact3d
      call postprocessing(rho1,ux1,uy1,uz1,pp3,phi1,ep1)
 
   enddo !! End time loop
+
+  close(iounit)
 
   call finalise_xcompact3d()
 
@@ -140,11 +261,11 @@ subroutine init_xcompact3d()
 
   use visu, only : visu_init, visu_ready
 
-  use genepsi, only : genepsi3d, epsi_init
+  use genepsi, only : genepsi3d, epsi_init, param_assign
   use ibm, only : body
 
   use probes, only : init_probes
-
+!   use case, only : param_assign
   implicit none
 
   integer :: ierr
@@ -201,6 +322,7 @@ subroutine init_xcompact3d()
   call decomp_info_init(nxm, nym, nz, ph3)
 
   call init_variables()
+  call param_assign()
 
   call schemes()
 
@@ -212,6 +334,7 @@ subroutine init_xcompact3d()
   endif
 
   if ((iibm.eq.2).or.(iibm.eq.3)) then
+   !   call boundary_conditions()
      call genepsi3d(ep1)
   else if (iibm.eq.1) then
      call epsi_init(ep1)
@@ -219,7 +342,7 @@ subroutine init_xcompact3d()
   endif
 
   if (iforces.eq.1) then
-     call init_forces()
+   !   call init_forces()
      if (irestart==1) then
         call restart_forces(0)
      endif

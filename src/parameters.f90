@@ -29,7 +29,7 @@ subroutine parameter(input_i3d)
 
   use probes, only : nprobes, setup_probes, flag_all_digits, flag_extra_probes, xyzprobes
   use visu, only : output2D
-  use forces, only : iforces, nvol, xld, xrd, yld, yud!, zld, zrd
+  use forces, only : iforces, nvol, xld, xrd, yld, yud, zld, zrd
 
   implicit none
 
@@ -60,8 +60,11 @@ subroutine parameter(input_i3d)
   NAMELIST /LESModel/ jles, smagcst, smagwalldamp, nSmag, walecst, maxdsmagcst, iwall
   NAMELIST /WallModel/ smagwalldamp
   NAMELIST /Tripping/ itrip,A_tr,xs_tr_tbl,ys_tr_tbl,ts_tr_tbl,x0_tr_tbl
-  NAMELIST /ibmstuff/ cex,cey,cez,shx,shy,shz,oriw,orii,orij,orik,lvx,lvy,lvz,avx,avy,avz,ra,nobjmax,nraf,nvol,iforces, npif, izap, ianal, imove, thickness, chord, omega ,ubcx,ubcy,ubcz,rads,rho_s, c_air
-  NAMELIST /ForceCVs/ xld, xrd, yld, yud!, zld, zrd
+  NAMELIST /ibmstuff/ ce,sh,ori,lv,av,ra, &
+      nobjmax,nraf,nvol,iforces, cvl_scalar, npif, izap, ianal, imove, thickness, chord, omega , &
+      ubcx,ubcy,ubcz,rads,rho_s, c_air, grav_x,grav_y,grav_z, nozdrift, force_csv, bodies_fixed, cube_flag, tconv2_sign, &
+      torques_flag, orientations_free, shear_flow_ybc, shear_flow_zbc, shear_velocity, torq_debug, torq_flip, ztorq_only, nbody
+  NAMELIST /ForceCVs/ xld, xrd, yld, yud, zld, zrd
   NAMELIST /LMN/ dens1, dens2, prandtl, ilmn_bound, ivarcoeff, ilmn_solve_temp, &
        massfrac, mol_weight, imultispecies, primary_species, &
        Fr, ibirman_eos
@@ -116,7 +119,7 @@ subroutine parameter(input_i3d)
      read(10, nml=ProbesParam); rewind(10)
   endif
   if (iforces.eq.1) then
-     allocate(xld(nvol), xrd(nvol), yld(nvol), yud(nvol))!, zld(nvol), zrd(nvol))
+     allocate(xld(nvol), xrd(nvol), yld(nvol), yud(nvol), zld(nvol), zrd(nvol))
      read(10, nml=ForceCVs); rewind(10)
   endif
   
@@ -252,7 +255,11 @@ subroutine parameter(input_i3d)
   dy2 = dy * dy
   dz2 = dz * dz
 
-  xnu=one/re
+  if (re.gt.0.001) then 
+   xnu=one/re
+  else 
+   xnu=zero
+  endif
   !! Constant pressure gradient, re = Re_tau -> use to compute Re_centerline
   if (cpg) then
     re_cent = (re/0.116_mytype)**(1.0_mytype/0.88_mytype)
@@ -571,7 +578,7 @@ subroutine parameter_defaults()
   use probes, only : nprobes, flag_all_digits, flag_extra_probes
   use visu, only : output2D
   use forces, only : iforces, nvol
-  use ibm_param, only : oriw,rho_s
+  use ibm_param, only : oriw,rho_s,cvl_scalar,grav_y,grav_x,grav_z,nozdrift,force_csv,nbody,ra
 
   implicit none
 
@@ -613,6 +620,14 @@ subroutine parameter_defaults()
   itest=1
   oriw=one
   rho_s=one
+  cvl_scalar=onepfive
+  grav_y=zero
+  grav_x=zero
+  grav_z=zero
+  nozdrift=0
+  force_csv=0
+  nbody=1
+  ra(:) = 1.0
 
   !! Gravity field
   gravx = zero
