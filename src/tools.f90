@@ -218,6 +218,7 @@ contains
     use navier, only : gradp
     use mhd, only : mhd_equation,Bm,dBm
     use particle, only : particle_checkpoint
+    use ibm_param, only : position, orientation, linearVelocity, angularVelocity, nbody
 
     implicit none
 
@@ -383,6 +384,18 @@ contains
           call particle_checkpoint(mode='write',filename='checkpoint-particles')
        endif
 
+       if (itype.eq.itype_ellip .and. nrank==0) then
+          open(112, file='body_state.dat', action='write', status='replace')
+          write(112,*) nbody
+          do i = 1, nbody
+             write(112,*) position(i,:)
+             write(112,*) orientation(i,:)
+             write(112,*) linearVelocity(i,:)
+             write(112,*) angularVelocity(i,:)
+          enddo
+          close(112)
+       endif
+
     else
        if (nrank==0) then
          write(*,*)'==========================================================='
@@ -486,6 +499,25 @@ contains
        end if
 
        if(particle_active) call particle_checkpoint(mode='read')
+
+       if (itype.eq.itype_ellip) then
+          if (nrank==0) then
+             open(112, file='body_state.dat', action='read', status='old')
+             read(112,*) i  ! nbody — consumed but not checked here
+             do i = 1, nbody
+                read(112,*) position(i,:)
+                read(112,*) orientation(i,:)
+                read(112,*) linearVelocity(i,:)
+                read(112,*) angularVelocity(i,:)
+             enddo
+             close(112)
+          endif
+          call MPI_BCAST(position,      30, real_type, 0, MPI_COMM_WORLD, code)
+          call MPI_BCAST(orientation,   40, real_type, 0, MPI_COMM_WORLD, code)
+          call MPI_BCAST(linearVelocity,  30, real_type, 0, MPI_COMM_WORLD, code)
+          call MPI_BCAST(angularVelocity, 40, real_type, 0, MPI_COMM_WORLD, code)
+          if (nrank==0) write(*,*) 'Body state restored from body_state.dat'
+       endif
 
     endif
 
