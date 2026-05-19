@@ -97,10 +97,10 @@ contains
   subroutine param_assign()
 
    use ibm_param
-   use ellipsoid_utils, only: NormalizeQuaternion,ellipInertiaCalculate,ellipMassCalculate
+   use ellipsoid_utils, only: NormalizeQuaternion,ellipInertiaCalculate,ellipMassCalculate,compute_lamb_coefficients
    use param
    use var, only: nrank
-   real(mytype) :: eqr, ori_dummy(4), ellip_m_dummy, inertia_dummy(3,3)
+   real(mytype) :: eqr, ori_dummy(4), ellip_m_dummy, inertia_dummy(3,3), k_lamb(3), K_rot(3)
    integer :: i,ii,j
 
    do i =1,nbody
@@ -184,9 +184,13 @@ contains
       do i = 1,nbody
          call ellipMassCalculate(shape(i,:), rho_s(i), ellip_m_dummy)
          ellip_m(i) = ellip_m_dummy
+         call compute_lamb_coefficients(shape(i,:), k_lamb, K_rot)
+         ellip_m_added(i,:)      = k_lamb * ellip_m(i) / rho_s(i)
+         inertia_rot_added(i,:)  = K_rot
          if (nrank==0) then
-
             write(*,*) "Nbody", i, "ellip_m = ", ellip_m(i)
+            write(*,*) "Nbody", i, "ellip_m_added = ", ellip_m_added(i,:)
+            write(*,*) "Nbody", i, "inertia_rot_added = ", inertia_rot_added(i,:)
          endif
       enddo
 

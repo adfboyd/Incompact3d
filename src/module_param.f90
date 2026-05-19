@@ -669,7 +669,7 @@ module ibm_param
   use decomp_2d_constants, only : mytype
   real(mytype) :: cex,cey,cez,shx,shy,shz,oriw,orii,orij,orik,lvx,lvy,lvz,avx,avy,avz,rai,rao,ubcx,ubcy,ubcz,rads,c_air,cvl_scalar,grav_y,grav_x,grav_z
   real(mytype) :: position(10,3),orientation(10,4),linearVelocity(10,3),angularVelocity(10,4),linearAcceleration(3),linearForce(10,3),torque(10,3),shape(10,3)
-  real(mytype) :: position_1(3),linearVelocity_1(3),orientation_1(4),angularVelocity_1(4),ra(10),rho_s(10),ellip_m(10),inertia(10,3,3)
+  real(mytype) :: position_1(3),linearVelocity_1(3),orientation_1(4),angularVelocity_1(4),ra(10),rho_s(10),ellip_m(10),ellip_m_added(10,3),inertia(10,3,3),inertia_rot_added(10,3)
   real(mytype) :: chord,thickness,omega, tconv2_sign, shear_velocity
   real(mytype) :: ce(30),sh(30),ori(40), lv(30), av(30)
   integer :: inana ! Analytical BC as Input

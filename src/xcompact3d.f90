@@ -21,13 +21,12 @@ program xcompact3d
   use param, only : mhd_active
   use particle, only : intt_particles
 
-  use ellipsoid_utils, only: lin_step, ang_step, QuaternionNorm
-  use forces, only : force, init_forces, iforces,update_forces, xld,xrd,yld,yud,zld,zrd,torque_calc,nvol
+  use ellip, only : update_ellipsoid
+  use forces, only : init_forces, iforces, update_forces, xld, xrd, yld, yud, zld, zrd, nvol
   implicit none
-  real(mytype)  :: dummy,drag(10),lift(10),lat(10),grav_effy(10),grav_effx(10),grav_effz(10),xtorq(10),ytorq(10),ztorq(10),maxrad
-  integer :: iounit,ierr,i,code,ierror
-  real, dimension(100) :: x
-  character(len=30) :: filename!, filename2
+  real(mytype) :: maxrad
+  integer :: iounit, i, code, ierror
+  character(len=30) :: filename
 
 
 
@@ -86,19 +85,57 @@ program xcompact3d
         if (imove.eq.1) then ! update epsi for moving objects
           if ((iibm.eq.2).or.(iibm.eq.3)) then
              call genepsi3d(ep1)
-             do i = 1,nobjmax
-               maxrad = max(shape(i,1),shape(i,2),shape(i,3))
+             if (itype.eq.itype_cyl) then
+                do i = 1, min(nobjmax,nvol)
+                   position(i,1) = cex + ubcx*(t-ifirst*dt)
+                   position(i,2) = cey + ubcy*(t-ifirst*dt)
+                   position(i,3) = zlz * 0.5_mytype
+                   linearVelocity(i,1) = ubcx
+                   linearVelocity(i,2) = ubcy
+                   linearVelocity(i,3) = ubcz
+                   orientation(i,1) = 1.0_mytype
+                   orientation(i,2) = 0.0_mytype
+                   orientation(i,3) = 0.0_mytype
+                   orientation(i,4) = 0.0_mytype
+                   angularVelocity(i,1) = 0.0_mytype
+                   angularVelocity(i,2) = 0.0_mytype
+                   angularVelocity(i,3) = 0.0_mytype
+                   angularVelocity(i,4) = 0.0_mytype
+                   shape(i,1) = ra(i)
+                   shape(i,2) = ra(i)
+                   shape(i,3) = zlz * 0.5_mytype
+                enddo
+             endif
+             do i = 1,min(nobjmax,nvol)
+               if (itype.eq.itype_cyl) then
+                  ! For cylinders, only use x-y radii; z spans full domain
+                  maxrad = max(shape(i,1),shape(i,2))
+               else
+                  maxrad = max(shape(i,1),shape(i,2),shape(i,3))
+               endif
                if (iforces.eq.1) then
                   xld(i) = position(i,1) - maxrad * ra(i) * cvl_scalar
                   xrd(i) = position(i,1) + maxrad * ra(i) * cvl_scalar
                   yld(i) = position(i,2) - maxrad * ra(i) * cvl_scalar
                   yud(i) = position(i,2) + maxrad * ra(i) * cvl_scalar
-                  zld(i) = position(i,3) - maxrad * ra(i) * cvl_scalar
-                  zrd(i) = position(i,3) + maxrad * ra(i) * cvl_scalar
-                  ! write(*,*) "CV bounds = ", xld(i), xrd(i), yld(i), yud(i), zld(i), zrd(i)
-                  if ((xld(i).lt.0).or.(xrd(i).gt.xlx).or.(yld(i).lt.0).or.(yud(i).gt.yly).or.(zld(i).lt.0).or.(zrd(i).gt.zlz)) then
+                  if (itype.eq.itype_cyl) then
+                     ! For cylinders, z bounds span full domain
+                     zld(i) = zero
+                     zrd(i) = zlz
+                  else
+                     zld(i) = position(i,3) - maxrad * ra(i) * cvl_scalar
+                     zrd(i) = position(i,3) + maxrad * ra(i) * cvl_scalar
+                  endif
+                  ! Check boundary violations
+                  if ((xld(i).lt.0).or.(xrd(i).gt.xlx).or.(yld(i).lt.0).or.(yud(i).gt.yly)) then
                      write(*,*) "Body is too close to boundary!"
                      call MPI_ABORT(MPI_COMM_WORLD,code,ierror)
+                  endif
+                  if (itype.ne.itype_cyl) then
+                     if ((zld(i).lt.0).or.(zrd(i).gt.zlz)) then
+                        write(*,*) "Body is too close to boundary!"
+                        call MPI_ABORT(MPI_COMM_WORLD,code,ierror)
+                     endif
                   endif
                endif
             enddo
@@ -141,83 +178,11 @@ program xcompact3d
         
         call test_flow(rho1,ux1,uy1,uz1,phi1,ep1,drho1,divu3)
 
-        !Add force calculation here
-      !   if (nrank.eq.0) then
-      !   write(*,*) 'Going to call force from xcompact3d, itr = ', itr
-      !   endif
-        if (itype.eq.itype_ellip) then 
-         call force(ux1,uy1,uz1,ep1,drag,lift,lat,1)
-         grav_effx = grav_x*(rho_s-1.0)
-         grav_effy = grav_y*(rho_s-1.0)
-         grav_effz = grav_z*(rho_s-1.0)
-         do i = 1,nbody
-            linearForce(i,:) = [drag(i)-grav_effx(i), lift(i)-grav_effy(i), lat(i)-grav_effz(i)]
-         enddo
-
-
-         if (torques_flag.eq.1) then
-            call torque_calc(ux1,uy1,uz1,ep1,xtorq,ytorq,ztorq,1)
-         endif
-         if (orientations_free.eq.1) then
-            do i = 1,nvol
-               torque(i,:) = [xtorq(i), ytorq(i), ztorq(i)]
-            enddo
-            if (ztorq_only.eq.1) then
-               torque(:,1) = zero
-               torque(:,2) = zero
-            endif
-         else
-            torque(:,:) = zero
-         endif
-         !   if (nrank==0) then
-
-         !   if (bodies_fixed==0) then
-         do i = 1,nvol
-
-            call lin_step(position(i,:),linearVelocity(i,:),linearForce(i,:),ellip_m(i),dt,position_1,linearVelocity_1)
-            call ang_step(orientation(i,:),angularVelocity(i,:),torque(i,:),inertia(i,:,:),dt,orientation_1,angularVelocity_1)
-
-            position(i,:) = position_1
-            linearVelocity(i,:) = linearVelocity_1
-
-            orientation(i,:) = orientation_1
-            angularVelocity(i,:) = angularVelocity_1
-         enddo
-
-
-         if ((nrank==0).and.(mod(itime,ilist)==0)) then
-            do i = 1,nbody
-               write(11+i ,*) t, position(i,1), position(i,2), position(i,3), orientation(i,1), orientation(i,2), orientation(i,3), orientation(i,4), linearVelocity(i,1), linearVelocity(i,2), linearVelocity(i,3), angularVelocity(i,2), angularVelocity(i,3), angularVelocity(i,4), linearForce(i,1), linearForce(i,2), linearForce(i,3), torque(i,1), torque(i,2), torque(i,3)
-               flush(11+i)
-            enddo
-         endif
-
-            if ((nrank==0).and.(mod(itime,ilist)==0)) then
-               do i = 1,nbody
-                  write(*,*) "Body", i
-                  write(*,*) "Position =         ", position(i,:)
-                  write(*,*) "Orientation =      ", orientation(i,:)
-                  write(*,*) "Linear velocity =  ", linearVelocity(i,:)
-                  write(*,*) "Angular velocity = ", angularVelocity(i,:)
-                  write(*,*) "Linear Force = ", linearForce(i,:)
-                  write(*,*) "Torque = ", torque(i,:)
-               enddo
-            ! call QuaternionNorm(angularVelocity,dummy)
-
-            ! write(*,*) 'Norm of angvel = ', dummy
-            endif
-         endif
-
-      !   endif
-
-      !   if (nrank==0) then
-      !    write(*,*) 'Centroid position is ', position
-      !    write(*,*) 'Orientation is ', orientation
-      !   end if
-
         if(mhd_active) call test_magnetic
 
      enddo !! End sub timesteps
+
+     if (itype.eq.itype_ellip) call update_ellipsoid(ux1, uy1, uz1, ep1)
 
      if(particle_active) then
        call intt_particles(ux1,uy1,uz1,t)
@@ -333,8 +298,8 @@ subroutine init_xcompact3d()
   call decomp_info_init(nxm, nym, nz, ph3)
 
   call init_variables()
-  if (itype.eq.itype_ellip) then 
-       call param_assign()
+  if (itype.eq.itype_ellip) then
+     call param_assign()
   endif
 
   call schemes()
@@ -355,7 +320,7 @@ subroutine init_xcompact3d()
   endif
 
   if (iforces.eq.1) then
-   !   call init_forces()
+     call init_forces()
      if (irestart==1) then
         call restart_forces(0)
      endif

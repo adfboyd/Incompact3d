@@ -14,7 +14,7 @@ character(len=1),parameter :: NL=char(10) !new line character
 
 PRIVATE ! All functions/subroutines private by default
 PUBLIC :: init_ellip, boundary_conditions_ellip, postprocess_ellip, &
-            geomcomplex_ellip, visu_ellip, visu_ellip_init
+            geomcomplex_ellip, visu_ellip, visu_ellip_init, update_ellipsoid
 
 contains
 
@@ -513,6 +513,81 @@ subroutine visu_ellip(ux1, uy1, uz1, pp3, phi1, ep1, num)
     call write_field(di1, ".", "critq", num, flush = .true.) ! Reusing temporary array, force flush
     endif
 end subroutine visu_ellip
+
+subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
+
+    use forces, only : force, torque_calc, nvol
+    use ellipsoid_utils, only : lin_step, ang_step
+    use ibm_param
+    use param, only : zero, dt
+    use variables, only : ilist
+    use var, only : itime, t
+    use decomp_2d_mpi, only : nrank
+
+    implicit none
+
+    real(mytype), intent(in), dimension(xsize(1),xsize(2),xsize(3)) :: ux1, uy1, uz1, ep1
+
+    real(mytype) :: drag(10), lift(10), lat(10)
+    real(mytype) :: grav_effx(10), grav_effy(10), grav_effz(10)
+    real(mytype) :: xtorq(10), ytorq(10), ztorq(10)
+    integer :: i
+
+    xtorq = zero; ytorq = zero; ztorq = zero
+
+    call force(ux1, uy1, uz1, ep1, drag, lift, lat, 1)
+
+    grav_effx = grav_x * (rho_s - 1.0_mytype)
+    grav_effy = grav_y * (rho_s - 1.0_mytype)
+    grav_effz = grav_z * (rho_s - 1.0_mytype)
+    do i = 1, nbody
+       linearForce(i,:) = [drag(i)-grav_effx(i), lift(i)-grav_effy(i), lat(i)-grav_effz(i)]
+    enddo
+
+    if (torques_flag.eq.1) then
+       call torque_calc(ux1, uy1, uz1, ep1, xtorq, ytorq, ztorq, 1)
+    endif
+    if (orientations_free.eq.1) then
+       do i = 1, nvol
+          torque(i,:) = [xtorq(i), ytorq(i), ztorq(i)]
+       enddo
+       if (ztorq_only.eq.1) then
+          torque(:,1) = zero
+          torque(:,2) = zero
+       endif
+    else
+       torque(:,:) = zero
+    endif
+
+    do i = 1, nvol
+       call lin_step(position(i,:), linearVelocity(i,:), linearForce(i,:), ellip_m(i), ellip_m_added(i,:), orientation(i,:), dt, position_1, linearVelocity_1)
+       call ang_step(orientation(i,:), angularVelocity(i,:), torque(i,:), inertia(i,:,:), inertia_rot_added(i,:), dt, orientation_1, angularVelocity_1)
+       position(i,:) = position_1
+       linearVelocity(i,:) = linearVelocity_1
+       orientation(i,:) = orientation_1
+       angularVelocity(i,:) = angularVelocity_1
+    enddo
+
+    if (nrank==0 .and. mod(itime,ilist)==0) then
+       do i = 1, nbody
+          write(11+i,*) t, position(i,1), position(i,2), position(i,3), &
+               orientation(i,1), orientation(i,2), orientation(i,3), orientation(i,4), &
+               linearVelocity(i,1), linearVelocity(i,2), linearVelocity(i,3), &
+               angularVelocity(i,2), angularVelocity(i,3), angularVelocity(i,4), &
+               linearForce(i,1), linearForce(i,2), linearForce(i,3), &
+               torque(i,1), torque(i,2), torque(i,3)
+          flush(11+i)
+          write(*,*) "Body", i
+          write(*,*) "Position =         ", position(i,:)
+          write(*,*) "Orientation =      ", orientation(i,:)
+          write(*,*) "Linear velocity =  ", linearVelocity(i,:)
+          write(*,*) "Angular velocity = ", angularVelocity(i,:)
+          write(*,*) "Linear Force =     ", linearForce(i,:)
+          write(*,*) "Torque =           ", torque(i,:)
+       enddo
+    endif
+
+end subroutine update_ellipsoid
 
 end module ellip
   

@@ -622,50 +622,59 @@ contains
 
     end subroutine ang_full_step
 
-    subroutine ang_step(q,omega_q,torque_vec,inertia,time_step,q1,omega1)
+    subroutine ang_step(q,omega_q,torque_vec,inertia,inertia_rot_added,time_step,q1,omega1)
       use param
-      ! use ibm_param, only: inertia
-      real(mytype),intent(in) :: q(4),omega_q(4),torque_vec(3),inertia(3,3),time_step
+      real(mytype),intent(in) :: q(4),omega_q(4),torque_vec(3),inertia(3,3)
+      real(mytype),intent(in) :: inertia_rot_added(3),time_step
       real(mytype),intent(out):: q1(4),omega1(4)
       real(mytype)            :: torque_q(4),omega_b(4),torque_b(4),omega_half_b(4),omega1_b(4)
-      real(mytype)            :: ang_accel_b(4), omega_half(4)
+      real(mytype)            :: ang_accel_b(4), omega_half(4), inertia_eff(3,3)
 
-      ! write(*,*) 'ang_vel_lab = ', omega_q
-      call lab_to_body(omega_q, q, omega_b) !convert to body frame
-      ! write(*,*) 'ang_vel_b =   ', omega_b
-      torque_q(1)=zero
-      torque_q(2:4)=torque_vec(:)
-      ! write(*,*) 'torque =      ', torque_q
-      call lab_to_body(torque_q,q, torque_b)
-      ! write(*,*) 'torque_b =    ', torque_b
+      ! Effective inertia = solid + fluid rotational added inertia (diagonal, body frame).
+      ! No rotation transformation needed — ang_step already operates in the body frame.
+      inertia_eff       = inertia
+      inertia_eff(1,1)  = inertia_eff(1,1) + inertia_rot_added(1)
+      inertia_eff(2,2)  = inertia_eff(2,2) + inertia_rot_added(2)
+      inertia_eff(3,3)  = inertia_eff(3,3) + inertia_rot_added(3)
 
-      call accel_get(omega_b,inertia,torque_b,ang_accel_b) !calculate acceleration
-      ! write(*,*) 'acceleration =', ang_accel_b
+      call lab_to_body(omega_q, q, omega_b)
+      torque_q(1)   = zero
+      torque_q(2:4) = torque_vec(:)
+      call lab_to_body(torque_q, q, torque_b)
 
-      call omega_stepper(omega_b, ang_accel_b,time_step*half,omega_half_b)
-      ! write(*,*) 'omega_half_b =', omega_half_b
-      call omega_stepper(omega_b, ang_accel_b,time_step,omega1_b) !calculate omega at half and full timestep
-      ! write(*,*) 'omega_full_b =', omega1_b
-      call body_to_lab(omega_half_b,q,omega_half) !convert back to lab
-      ! write(*,*) 'omega_half_lab', omega_half
-      call orientation_stepper(q,omega_half,time_step,q1) !step forward orientation
-      ! write(*,*) 'time_step    =', time_step
-      ! write(*,*) 'orientation1 =', q1
-      call body_to_lab(omega1_b,q1,omega1)
-      ! write(*,*) 'omega_full   =', omega1
+      call accel_get(omega_b, inertia_eff, torque_b, ang_accel_b)
+
+      call omega_stepper(omega_b, ang_accel_b, time_step*half, omega_half_b)
+      call omega_stepper(omega_b, ang_accel_b, time_step,      omega1_b)
+      call body_to_lab(omega_half_b, q,  omega_half)
+      call orientation_stepper(q, omega_half, time_step, q1)
+      call body_to_lab(omega1_b, q1, omega1)
 
     end subroutine ang_step
 
 
-    subroutine lin_step(position,linearVelocity,linearForce,ellip_m,time_step,position_1,linearVelocity_1)
-      ! use ibm_param, only: ellip_m
-      real(mytype),intent(in)   :: position(3),linearVelocity(3),linearForce(3),ellip_m,time_step
+    subroutine lin_step(position,linearVelocity,linearForce,ellip_m,ellip_m_added,orientation,time_step,position_1,linearVelocity_1)
+      use param, only : half, zero
+      real(mytype),intent(in)   :: position(3),linearVelocity(3),linearForce(3)
+      real(mytype),intent(in)   :: ellip_m,ellip_m_added(3),orientation(4),time_step
       real(mytype),intent(out)  :: position_1(3),linearVelocity_1(3)
-      real(mytype)              :: linearAcceleration(3)
+      real(mytype)              :: linearAcceleration(3), velocity_half(3)
+      real(mytype)              :: F_q(4), F_body_q(4), a_body_q(4), a_lab_q(4)
 
-      linearAcceleration(:) = linearForce(:) / ellip_m
-      position_1(:) = position(:) + time_step*linearVelocity(:)
-      linearVelocity_1 = linearVelocity(:) + time_step*linearAcceleration(:)
+      ! Rotate force into body frame, apply diagonal effective mass, rotate back.
+      ! This handles the full orientation-dependent added-mass tensor without
+      ! matrix inversion: a_lab = R·diag(1/(m+m_added))·R^T · F_lab
+      F_q(1)   = zero
+      F_q(2:4) = linearForce(:)
+      call lab_to_body(F_q, orientation, F_body_q)
+      a_body_q(1)   = zero
+      a_body_q(2:4) = F_body_q(2:4) / (ellip_m + ellip_m_added(:))
+      call body_to_lab(a_body_q, orientation, a_lab_q)
+      linearAcceleration(:) = a_lab_q(2:4)
+
+      velocity_half(:)  = linearVelocity(:) + half*time_step*linearAcceleration(:)
+      position_1(:)     = position(:)       + time_step*velocity_half(:)
+      linearVelocity_1(:) = velocity_half(:)  + half*time_step*linearAcceleration(:)
 
     end subroutine lin_step
 
@@ -757,4 +766,84 @@ contains
       endif
     end subroutine
       
+  ! Carlson's symmetric elliptic integral R_D, computed by duplication algorithm.
+  ! R_D(x,y,z) = (3/2) integral_0^inf dt / ((t+z)*sqrt((t+x)(t+y)(t+z)))
+  ! Requires x >= 0, y >= 0, z > 0; at most one of x,y may be zero.
+  ! Ref: Carlson (1995), Numerical Algorithms 10:13-26.
+  ! Carlson R_D using NR-style current-step deviations (Xd = (An-xn)/An).
+  ! Ref: Carlson (1995) / Press et al. Numerical Recipes 3e §6.12.
+  function carlson_RD(x, y, z) result(rd)
+    use decomp_2d_constants, only : mytype
+    implicit none
+    real(mytype), intent(in) :: x, y, z
+    real(mytype) :: rd
+    real(mytype) :: xn, yn, zn, An, sqx, sqy, sqz, lam, fac
+    real(mytype) :: Xd, Yd, Zd, ea, eb, ec, ed, ee, rsum
+    integer :: iter
+    real(mytype), parameter :: tol = 1.0e-10_mytype
+
+    xn   = x;  yn = y;  zn = z
+    rsum = 0.0_mytype
+    fac  = 1.0_mytype
+
+    do iter = 1, 30
+      sqx  = sqrt(xn);  sqy = sqrt(yn);  sqz = sqrt(zn)
+      lam  = sqx*sqy + sqx*sqz + sqy*sqz
+      rsum = rsum + fac / (sqz * (zn + lam))
+      fac  = fac * 0.25_mytype
+      xn   = (xn + lam) * 0.25_mytype
+      yn   = (yn + lam) * 0.25_mytype
+      zn   = (zn + lam) * 0.25_mytype
+      An   = (xn + yn + 3.0_mytype*zn) / 5.0_mytype
+      if (max(abs(xn-An), abs(yn-An), abs(zn-An)) < tol*abs(An)) exit
+    enddo
+
+    An = (xn + yn + 3.0_mytype*zn) / 5.0_mytype
+    Xd = (An - xn) / An
+    Yd = (An - yn) / An
+    Zd = (An - zn) / An
+    ea = Xd * Yd
+    eb = Zd * Zd
+    ec = ea - eb
+    ed = ea - 6.0_mytype*eb
+    ee = ed + ec + ec
+
+    rd = 3.0_mytype*rsum &
+         + fac * (1.0_mytype + ed*(-3.0_mytype/14.0_mytype)          &
+                 + Zd*(ee/6.0_mytype + Zd*(-9.0_mytype/22.0_mytype*ec &
+                 + Zd*(3.0_mytype/26.0_mytype*ea*Zd))))               &
+         / (An * sqrt(An))
+  end function carlson_RD
+
+  ! Compute the Lamb added-mass coefficients k(3) for an ellipsoid whose
+  ! normalised semi-axes are s(3) (product = 1).
+  ! k_i = A_i / (2 - A_i),  A_i = (2/3) R_D(s_j^2, s_k^2, s_i^2)
+  ! The added mass along axis i is then  m_added_i = k_i * rho_f * V_displaced.
+  ! Compute translational (k_lamb) and rotational (K_rot) Lamb added-mass coefficients.
+  !
+  ! Translational: k_i = A_i/(2-A_i),  m_added_i = k_i * rho_f * V_displaced
+  !
+  ! Rotational (body-frame diagonal, from Lamb §115 via A-coefficient identity):
+  !   K_rot_i = (1/5)*(s_j^2 - s_k^2)*(A_k - A_j)   {i,j,k} cyclic
+  ! Already in the body frame — add directly to the solid inertia diagonal in ang_step.
+  subroutine compute_lamb_coefficients(s, k_lamb, K_rot)
+    use decomp_2d_constants, only : mytype
+    implicit none
+    real(mytype), intent(in)  :: s(3)
+    real(mytype), intent(out) :: k_lamb(3), K_rot(3)
+    real(mytype) :: A(3)
+    real(mytype), parameter :: two_thirds = 2.0_mytype / 3.0_mytype
+    real(mytype), parameter :: one_fifth  = 1.0_mytype / 5.0_mytype
+
+    A(1) = two_thirds * carlson_RD(s(2)**2, s(3)**2, s(1)**2)
+    A(2) = two_thirds * carlson_RD(s(1)**2, s(3)**2, s(2)**2)
+    A(3) = two_thirds * carlson_RD(s(1)**2, s(2)**2, s(3)**2)
+
+    k_lamb(:) = A(:) / (2.0_mytype - A(:))
+
+    K_rot(1) = one_fifth * (s(2)**2 - s(3)**2) * (A(3) - A(2))
+    K_rot(2) = one_fifth * (s(1)**2 - s(3)**2) * (A(3) - A(1))
+    K_rot(3) = one_fifth * (s(1)**2 - s(2)**2) * (A(2) - A(1))
+  end subroutine compute_lamb_coefficients
+
 end module ellipsoid_utils

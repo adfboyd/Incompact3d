@@ -129,6 +129,19 @@ subroutine parameter(input_i3d)
   read(10, nml=Statistics); rewind(10)
   if (iibm.ne.0) then
      read(10, nml=ibmstuff); rewind(10)
+     if (itype.eq.itype_cyl) then
+        position(1,1) = cex
+        position(1,2) = cey
+        position(1,3) = zlz / 2.0_mytype
+        orientation(1,:) = (/ one, zero, zero, zero /)
+        linearVelocity(1,1) = ubcx
+        linearVelocity(1,2) = ubcy
+        linearVelocity(1,3) = ubcz
+        angularVelocity(1,:) = zero
+        shape(1,1) = ra(1)
+        shape(1,2) = ra(1)
+        shape(1,3) = zlz / 2.0_mytype
+     endif
   endif
   if (nprobes.gt.0) then
      call setup_probes()
