@@ -515,8 +515,8 @@ contains
     elseif (itime.eq.2) then
       if ((nrank .eq. 0).and.(record_var.eq.1)) then
          do i = 1,nvol
-            write(38+(iv-1),*) t, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero
-            call flush(38+(iv-1))
+            write(38+(i-1),*) t, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero
+            call flush(38+(i-1))
          enddo
       endif
        do k = 1, xsize(3)
@@ -805,7 +805,7 @@ contains
              do j=jcvlw_ly(iv),jcvup_ly(iv)-1
 
                 jj=ystart(2)+j-1
-                ym=real(jj,mytype)*dz
+                ym=real(jj,mytype)*dy
                !  write(*,*) 'Calculating force at left x boundary', [xm,ym,zm]
                 !momentum flux
                 call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
@@ -983,7 +983,9 @@ contains
            fdiz=zero
   !        do k=1,xsize(3)
            do j=jcvlw_lx(iv),jcvup_lx(iv)
-           !  kk = xstart(2)-1+j
+            ! kk must be reassigned to y-global index to match the Left z-face block,
+            ! since tconvxl2/tdiffxl2/tpreszl etc. are sized (ny) and accumulated per y-slice.
+            kk = xstart(2)-1+j
             jj = xstart(2)-1+j
             ym=real(jj,mytype)*dy
              do i=icvlf_lx(iv),icvrt_lx(iv)-1
@@ -1571,7 +1573,7 @@ contains
             do j=jcvlw_ly(iv),jcvup_ly(iv)-1
 
                jj=ystart(2)+j-1
-               ym=real(jj,mytype)*dz
+               ym=real(jj,mytype)*dy
               !  write(*,*) 'Calculating force at left x boundary', [xm,ym,zm]
                !momentum flux
                radial = [xm,ym,zm]-position(iv,:)
@@ -1791,7 +1793,9 @@ contains
           fdiz=zero
         !  do k=1,xsize(3)
           do j=jcvlw_lx(iv),jcvup_lx(iv)
-          !  kk = xstart(2)-1+j
+           ! kk must be reassigned to y-global index to match the Left z-face block,
+           ! since tconvxl2/tdiffxl2/tpreszl etc. are sized (ny) and accumulated per y-slice.
+           kk = xstart(2)-1+j
            jj = xstart(2)-1+j
            ym=real(jj,mytype)*dy
             do i=icvlf_lx(iv),icvrt_lx(iv)-1
