@@ -944,9 +944,10 @@ contains
                  uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
                  uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
-                 fcvx= fcvx +uxmid*uzmid*dx*dy
-                 fcvy= fcvy +uymid*uzmid*dx*dy
-                 fcvz= fcvz +uzmid*uzmid*dx*dy
+                 ! +(u.n)*u*dA convention; n=-zhat on lower-z face -> -uz factor.
+                 fcvx= fcvx -uxmid*uzmid*dx*dy
+                 fcvy= fcvy -uymid*uzmid*dx*dy
+                 fcvz= fcvz -uzmid*uzmid*dx*dy
 
                  !pressure
                  prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
@@ -1007,9 +1008,10 @@ contains
                uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
                uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
-                 fcvx= fcvx -uxmid*uzmid*dx*dy
-                 fcvy= fcvy -uymid*uzmid*dx*dy
-                 fcvz= fcvz -uzmid*uzmid*dx*dy
+                 ! +(u.n)*u*dA convention; n=+zhat on upper-z face -> +uz factor.
+                 fcvx= fcvx +uxmid*uzmid*dx*dy
+                 fcvy= fcvy +uymid*uzmid*dx*dy
+                 fcvz= fcvz +uzmid*uzmid*dx*dy
 
                  !pressure
                  prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
@@ -1061,8 +1063,9 @@ contains
        tp1 = sum(tpresx(:))/dt
        tp2 = sum(tpresy(:))/dt
 
-       mom1 = sum(tunstx(:)) + sum(tconvx(:)) - sum(tconvx2(:)) 
-       mom2 = sum(tunsty(:)) + sum(tconvy(:)) - sum(tconvy2(:))
+       ! tconvx and tconvx2 both store +(u.n)*u*dA -> combine with same sign.
+       mom1 = sum(tunstx(:)) + sum(tconvx(:)) + sum(tconvx2(:))
+       mom2 = sum(tunsty(:)) + sum(tconvy(:)) + sum(tconvy2(:))
 
        if (itype.eq.itype_cyl) then
           dra1(iv) = (sum(tdiffx) + sum(tdiffx2) + tp1 - mom1)
@@ -1070,7 +1073,7 @@ contains
           dra3(iv) = zero
        else
           tp3 = sum(tpresz(:))/dt
-          mom3 = sum(tunstz(:)) + sum(tconvz(:)) - sum(tconvz2(:))
+          mom3 = sum(tunstz(:)) + sum(tconvz(:)) + sum(tconvz2(:))
           dra1(iv) = (sum(tdiffx) + sum(tdiffx2) + tp1 - mom1)
           dra2(iv) = (sum(tdiffy) + sum(tdiffy2) + tp2 - mom2)
           dra3(iv) = (sum(tdiffz) + sum(tdiffz2) + tp3 - mom3)
