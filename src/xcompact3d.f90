@@ -139,7 +139,14 @@ program xcompact3d
                   endif
                endif
             enddo
-            if (itime.eq.ifirst) then
+            ! init_forces() returns early on the second call (ppi1 is already allocated),
+            ! which skips recomputing the integer CV indices (icvlf, icvrt, ...).
+            ! With moving bodies, xld/xrd/etc. above were just updated to track the body,
+            ! so the indices must be recomputed each step — that's update_forces()'s job.
+            ! On restart, itime==ifirst triggers init_forces() (early-return), leaving icvlf
+            ! stale from the initial body position → wrong CV → wrong force integral.
+            ! Always take the update_forces() path; init_forces() runs once during init_xcompact3d.
+            if (itime.eq.ifirst .and. irestart.eq.0) then
                call init_forces()
             else
                call update_forces()

@@ -913,10 +913,12 @@ contains
     !###################################################################
     if (read_flag) then
       if (nrank==0) print *,'Reading geometry'
-      call decomp_2d_read_one(1,ep1,'data/geometry','epsilon.bin',io_geom)   
+      ! reduce_prec=.false. works around an off-by-one bug in decomp_2d_io's
+      ! read_one_real / write_one paths with reduce_prec=true (see forces.f90)
+      call decomp_2d_read_one(1,ep1,'data/geometry','epsilon.bin',io_geom,reduce_prec=.false.)
     else
       if (nrank==0) print *,'Writing geometry'
-      call decomp_2d_write_one(1,ep1,'data/geometry','epsilon.bin',0,io_geom)
+      call decomp_2d_write_one(1,ep1,'data/geometry','epsilon.bin',0,io_geom,reduce_prec=.false.)
     endif
     !###################################################################
     !x-pencil

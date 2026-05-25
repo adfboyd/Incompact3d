@@ -91,24 +91,30 @@ contains
     integer :: code,ierror,i,j,k
     real(mytype) :: uxmax,uymax,uzmax,uxmin,uymin,uzmin
     real(mytype) :: uxmax1,uymax1,uzmax1,uxmin1,uymin1,uzmin1
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux,uy,uz
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ux,uy,uz
     real(mytype),dimension(6) :: umaxin, umaxout
-
-    if (iibm > 0) then
-       ux(:,:,:) = (one - ep1(:,:,:)) * ux(:,:,:)
-       uy(:,:,:) = (one - ep1(:,:,:)) * uy(:,:,:)
-       uz(:,:,:) = (one - ep1(:,:,:)) * uz(:,:,:)
-    endif
 
     uxmax=-1609.;uymax=-1609.;uzmax=-1609.;uxmin=1609.;uymin=1609.;uzmin=1609.
     !
-    ! More efficient version
-    uxmax=maxval(ux)
-    uymax=maxval(uy)
-    uzmax=maxval(uz)
-    uxmin=-minval(ux)
-    uymin=-minval(uy)
-    uzmin=-minval(uz)
+    ! Use mask to exclude cells inside immersed bodies (where ep1 = 1)
+    ! WITHOUT mutating the input velocity arrays — the previous implementation
+    ! did `ux = (1-ep1)*ux` which silently corrupted the velocity field when
+    ! called from init_xcompact3d (no INTENT(IN) protection from caller).
+    if (iibm > 0) then
+       uxmax=maxval(ux, mask=(ep1 == zero))
+       uymax=maxval(uy, mask=(ep1 == zero))
+       uzmax=maxval(uz, mask=(ep1 == zero))
+       uxmin=-minval(ux, mask=(ep1 == zero))
+       uymin=-minval(uy, mask=(ep1 == zero))
+       uzmin=-minval(uz, mask=(ep1 == zero))
+    else
+       uxmax=maxval(ux)
+       uymax=maxval(uy)
+       uzmax=maxval(uz)
+       uxmin=-minval(ux)
+       uymin=-minval(uy)
+       uzmin=-minval(uz)
+    endif
 
     umaxin = (/uxmax, uymax, uzmax, uxmin, uymin, uzmin/)
     call MPI_REDUCE(umaxin,umaxout,6,real_type,MPI_MAX,0,MPI_COMM_WORLD,code)

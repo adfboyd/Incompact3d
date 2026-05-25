@@ -375,21 +375,25 @@ contains
     
     if (itest1==1) then
        !write
-       call decomp_2d_write_one(1,ux01,resfile,"ux01",0,io_restart_forces)
-       call decomp_2d_write_one(1,uy01,resfile,"uy01",0,io_restart_forces)
-       call decomp_2d_write_one(1,ux11,resfile,"ux11",0,io_restart_forces)
-       call decomp_2d_write_one(1,uy11,resfile,"uy11",0,io_restart_forces)
-       call decomp_2d_write_one(1,uz01,resfile,"uz01",0,io_restart_forces)
-       call decomp_2d_write_one(1,uz11,resfile,"uz11",0,io_restart_forces)
+       ! NOTE: reduce_prec=.false. is REQUIRED to work around an off-by-one bug
+       ! in 2decomp-fft's read_one_real / write_one paths when reduce_prec is true
+       ! (default). Without this, the data is silently shifted in memory and
+       ! restart_forces produces wrong velocity history → wrong body forces → divergence.
+       call decomp_2d_write_one(1,ux01,resfile,"ux01",0,io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_write_one(1,uy01,resfile,"uy01",0,io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_write_one(1,ux11,resfile,"ux11",0,io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_write_one(1,uy11,resfile,"uy11",0,io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_write_one(1,uz01,resfile,"uz01",0,io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_write_one(1,uz11,resfile,"uz11",0,io_restart_forces,reduce_prec=.false.)
 
     else
        !read
-       call decomp_2d_read_one(1,ux01,resfile,"ux01",io_restart_forces)
-       call decomp_2d_read_one(1,uy01,resfile,"uy01",io_restart_forces)
-       call decomp_2d_read_one(1,ux11,resfile,"ux11",io_restart_forces)
-       call decomp_2d_read_one(1,uy11,resfile,"uy11",io_restart_forces)
-       call decomp_2d_read_one(1,uz01,resfile,"uz01",io_restart_forces)
-       call decomp_2d_read_one(1,uz11,resfile,"uz11",io_restart_forces)
+       call decomp_2d_read_one(1,ux01,resfile,"ux01",io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_read_one(1,uy01,resfile,"uy01",io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_read_one(1,ux11,resfile,"ux11",io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_read_one(1,uy11,resfile,"uy11",io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_read_one(1,uz01,resfile,"uz01",io_restart_forces,reduce_prec=.false.)
+       call decomp_2d_read_one(1,uz11,resfile,"uz11",io_restart_forces,reduce_prec=.false.)
 
     endif
 
