@@ -44,6 +44,10 @@ else (CMAKE_BUILD_TYPE MATCHES "NONE")
 endif (CMAKE_BUILD_TYPE MATCHES "NONE")
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake" "${CMAKE_SOURCE_DIR}/cmake/compilers" "${CMAKE_SOURCE_DIR}/cmake/fft")
+
+set(FFT_Choice "generic" CACHE STRING "2decomp-fft backend (generic|fftw|fftw_f03|mkl|cufft)")
+set_property(CACHE FFT_Choice PROPERTY STRINGS generic fftw fftw_f03 mkl cufft)
+
 find_package(DECOMP2D REQUIRED)
 
 # Despite IO is handled by 2DECOMP&FFT we need to set it

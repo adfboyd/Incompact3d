@@ -11,6 +11,7 @@ ExternalProject_Add(downloadBuild2decomp
     GIT_TAG           "v2.0.4"
     SOURCE_DIR        "${CMAKE_CURRENT_BINARY_DIR}/decomp2d-src"
     INSTALL_DIR       "${CMAKE_CURRENT_BINARY_DIR}/decomp2d-opt"
+    CMAKE_ARGS        -DFFT_Choice=@FFT_Choice@
     TEST_COMMAND      ""
 )
 
