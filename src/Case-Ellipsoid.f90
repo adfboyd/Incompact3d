@@ -14,7 +14,8 @@ character(len=1),parameter :: NL=char(10) !new line character
 
 PRIVATE ! All functions/subroutines private by default
 PUBLIC :: init_ellip, boundary_conditions_ellip, postprocess_ellip, &
-            geomcomplex_ellip, visu_ellip, visu_ellip_init, update_ellipsoid
+            geomcomplex_ellip, visu_ellip, visu_ellip_init, update_ellipsoid, &
+            check_body_proximity
 
 contains
 
@@ -588,6 +589,61 @@ subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
     endif
 
 end subroutine update_ellipsoid
+
+!********************************************************************
+! check_body_proximity
+!
+! Aborts the simulation if any pair of bodies comes within a separation
+! at which their force control volumes would overlap. At that point the
+! force integration starts double-counting fluid cells and any further
+! physics is invalid, so it's cleaner to stop with a clear message than
+! to continue silently into garbage.
+!
+! Threshold: cvl_scalar * (max(shape(i,:))*ra(i) + max(shape(j,:))*ra(j))
+! This is the same scaling used for the body-vs-domain-boundary check
+! in xcompact3d.f90 — it's the centre-to-centre distance at which the
+! two force CVs first touch.
+!********************************************************************
+subroutine check_body_proximity()
+
+    use param, only : itype, itype_cyl
+    use ibm_param, only : nbody, position, shape, ra, cvl_scalar
+    use decomp_2d_mpi, only : nrank
+    use MPI
+
+    implicit none
+
+    integer :: i, j, code, ierror
+    real(mytype) :: maxrad_i, maxrad_j, dist, min_sep
+
+    if (nbody <= 1) return
+
+    do i = 1, nbody - 1
+       if (itype .eq. itype_cyl) then
+          maxrad_i = max(shape(i,1), shape(i,2))
+       else
+          maxrad_i = max(shape(i,1), shape(i,2), shape(i,3))
+       endif
+       do j = i + 1, nbody
+          if (itype .eq. itype_cyl) then
+             maxrad_j = max(shape(j,1), shape(j,2))
+          else
+             maxrad_j = max(shape(j,1), shape(j,2), shape(j,3))
+          endif
+          dist = sqrt(sum((position(i,:) - position(j,:))**2))
+          min_sep = cvl_scalar * (maxrad_i*ra(i) + maxrad_j*ra(j))
+          if (dist < min_sep) then
+             if (nrank == 0) then
+                write(*,*) "Bodies", i, "and", j, "are too close!"
+                write(*,*) "  centre-to-centre distance =", dist
+                write(*,*) "  minimum allowed separation =", min_sep
+             endif
+             call MPI_ABORT(MPI_COMM_WORLD, 1, ierror)
+          endif
+       enddo
+    enddo
+
+end subroutine check_body_proximity
 
 end module ellip
   

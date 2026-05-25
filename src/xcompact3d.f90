@@ -21,7 +21,7 @@ program xcompact3d
   use param, only : mhd_active
   use particle, only : intt_particles
 
-  use ellip, only : update_ellipsoid
+  use ellip, only : update_ellipsoid, check_body_proximity
   use forces, only : init_forces, iforces, update_forces, xld, xrd, yld, yud, zld, zrd, nvol
   implicit none
   real(mytype) :: maxrad
@@ -139,6 +139,7 @@ program xcompact3d
                   endif
                endif
             enddo
+            if (itype.eq.itype_ellip) call check_body_proximity()
             ! init_forces() returns early on the second call (ppi1 is already allocated),
             ! which skips recomputing the integer CV indices (icvlf, icvrt, ...).
             ! With moving bodies, xld/xrd/etc. above were just updated to track the body,
