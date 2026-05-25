@@ -960,9 +960,10 @@ contains
                  dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
                  dwdzmid = half*(ti1(i,j,k)+ti1(i+1,j,k))
 
-                 fdix = fdix +(xnu*(dudzmid+dwdxmid)*dx*dy)
-                 fdiy = fdiy +(xnu*(dvdzmid+dwdymid)*dx*dy)
-                 fdiz = fdiz +two*xnu*dwdzmid*dx*dy
+                 ! Viscous stress: store +tau_ij*n_j*dA; n=-zhat on lower-z face.
+                 fdix = fdix -(xnu*(dudzmid+dwdxmid)*dx*dy)
+                 fdiy = fdiy -(xnu*(dvdzmid+dwdymid)*dx*dy)
+                 fdiz = fdiz -two*xnu*dwdzmid*dx*dy
               enddo
            enddo
   !print*, kk
@@ -1024,9 +1025,10 @@ contains
                  dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
                  dwdzmid = half*(ti1(i,j,k)+ti1(i+1,j,k))
 
-                 fdix = fdix -(xnu*(dudzmid+dwdxmid)*dx*dy)
-                 fdiy = fdiy -(xnu*(dvdzmid+dwdymid)*dx*dy)
-                 fdiz = fdiz -two*xnu*dwdzmid*dx*dy
+                 ! Viscous stress: store +tau_ij*n_j*dA; n=+zhat on upper-z face.
+                 fdix = fdix +(xnu*(dudzmid+dwdxmid)*dx*dy)
+                 fdiy = fdiy +(xnu*(dvdzmid+dwdymid)*dx*dy)
+                 fdiz = fdiz +two*xnu*dwdzmid*dx*dy
 
               enddo
            enddo
