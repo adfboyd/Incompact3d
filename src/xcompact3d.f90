@@ -147,10 +147,13 @@ program xcompact3d
             ! On restart, itime==ifirst triggers init_forces() (early-return), leaving icvlf
             ! stale from the initial body position → wrong CV → wrong force integral.
             ! Always take the update_forces() path; init_forces() runs once during init_xcompact3d.
-            if (itime.eq.ifirst .and. irestart.eq.0) then
-               call init_forces()
-            else
-               call update_forces()
+            ! Gate on iforces: xld/xrd/etc. are only allocated when iforces=1 (parameters.f90).
+            if (iforces.eq.1) then
+               if (itime.eq.ifirst .and. irestart.eq.0) then
+                  call init_forces()
+               else
+                  call update_forces()
+               endif
             endif
           else if (iibm.eq.1) then
              call body(ux1,uy1,uz1,ep1)

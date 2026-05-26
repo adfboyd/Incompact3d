@@ -517,7 +517,7 @@ end subroutine visu_ellip
 
 subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
 
-    use forces, only : force, torque_calc, nvol
+    use forces, only : force, torque_calc, nvol, iforces
     use ellipsoid_utils, only : lin_step, ang_step
     use ibm_param
     use param, only : zero, dt
@@ -533,6 +533,10 @@ subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
     real(mytype) :: grav_effx(10), grav_effy(10), grav_effz(10)
     real(mytype) :: xtorq(10), ytorq(10), ztorq(10)
     integer :: i
+
+    ! Body dynamics need forces; if force calculation is disabled, skip the
+    ! whole update (body stays at initial position/velocity).
+    if (iforces.ne.1) return
 
     xtorq = zero; ytorq = zero; ztorq = zero
 
