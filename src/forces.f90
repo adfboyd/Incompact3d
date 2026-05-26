@@ -22,6 +22,10 @@ module forces
 
   integer :: nvol,iforces
   real(mytype),save,allocatable,dimension(:,:,:) :: ux01, uy01, ux11, uy11, ppi1, uz01, uz11
+  ! Shared between force() and torque_calc(): the y-pencil pressure interpolant
+  ! and a timestep stamp used to deduplicate the transpose+derivative block.
+  real(mytype),save,allocatable,dimension(:,:,:) :: ppi2
+  integer, save :: last_force_aux_itime = -1
   real(mytype),allocatable,dimension(:) :: xld, xrd, yld, yud, zld, zrd, xld2, xrd2, yld2, yud2, zld2, zrd2
   integer,allocatable,dimension(:) :: icvlf,icvrt,jcvlw,jcvup,zcvlf,zcvrt
   integer,allocatable,dimension(:) :: icvlf_lx, icvrt_lx, icvlf_ly, icvrt_ly, icvlf_lz, icvrt_lz
@@ -50,6 +54,7 @@ contains
     call alloc_x(ux11)
     call alloc_x(uy11)
     call alloc_x(ppi1)
+    call alloc_y(ppi2)
     call alloc_x(uz01)
     call alloc_x(uz11)
 
@@ -402,6 +407,67 @@ contains
 
   end subroutine restart_forces
 
+  !
+  ! Compute the velocity derivatives and pencil-transposes needed by both
+  ! force() and torque_calc().  Result lives in the shared work arrays
+  ! ta1..ti1 (x-pencil), ux2/uy2/uz2/ppi2/ta2..ti2 (y-pencil) and ux3/uy3/uz3
+  ! (z-pencil), all of which are module variables in `var` or in this module.
+  ! Guarded by last_force_aux_itime so calling force() then torque_calc()
+  ! within the same timestep does this work only once.
+  !
+  subroutine precompute_force_aux(ux1, uy1, uz1)
+
+    USE param
+    USE variables
+    USE MPI
+
+    use var, only : ta1, tb1, tc1, td1, te1, tf1, tg1, th1, ti1, di1
+    use var, only : ux2, uy2, uz2, ta2, tb2, tc2, td2, te2, tf2, tg2, th2, ti2, di2
+    use var, only : ux3, uy3, uz3, tg3, th3, ti3, di3
+
+    implicit none
+    real(mytype), dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ux1, uy1, uz1
+
+    call derx (ta1,ux1,di1,sx,ffx,fsx,fwx,xsize(1),xsize(2),xsize(3),0,1)    ! dudx
+    call derx (tb1,uy1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,2) ! dvdx
+    call derx (te1,uz1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,3) ! dwdx
+
+    call transpose_x_to_y(ta1,ta2) ! dudx
+    call transpose_x_to_y(tb1,tb2) ! dvdx
+    call transpose_x_to_y(te1,te2) ! dwdx
+
+    call transpose_x_to_y(ux1,ux2)
+    call transpose_x_to_y(uy1,uy2)
+    call transpose_x_to_y(uz1,uz2)
+    call transpose_x_to_y(ppi1,ppi2)
+
+    call dery (tc2,ux2,di2,sy,ffyp,fsyp,fwyp,ppy,ysize(1),ysize(2),ysize(3),1,1) ! dudy
+    call dery (td2,uy2,di2,sy,ffy,fsy,fwy,ppy,ysize(1),ysize(2),ysize(3),0,2)    ! dvdy
+    call dery (tf2,uz2,di2,sy,ffyp,fsyp,fwyp,ppy,ysize(1),ysize(2),ysize(3),1,3) ! dwdy
+
+    call transpose_y_to_z(ux2,ux3)
+    call transpose_y_to_z(uy2,uy3)
+    call transpose_y_to_z(uz2,uz3)
+
+    call derz (tg3,ux3,di3,sz,ffzp,fszp,fwzp,zsize(1),zsize(2),zsize(3),1,1)  ! dudz
+    call derz (th3,uy3,di3,sz,ffzp,fszp,fwzp,zsize(1),zsize(2),zsize(3),1,2)  ! dvdz
+    call derz (ti3,uz3,di3,sz,ffz,fsz,fwz,zsize(1),zsize(2),zsize(3),0,3)     ! dwdz
+
+    call transpose_z_to_y(tg3,tg2) ! dudz
+    call transpose_z_to_y(th3,th2) ! dvdz
+    call transpose_z_to_y(ti3,ti2) ! dwdz
+
+    call transpose_y_to_x(tc2,tc1) ! dudy
+    call transpose_y_to_x(td2,td1) ! dvdy
+    call transpose_y_to_x(th2,th1) ! dvdz
+    call transpose_y_to_x(tf2,tf1) ! dwdy
+    call transpose_y_to_x(tg2,tg1) ! dudz
+    call transpose_y_to_x(ti2,ti1) ! dwdz
+
+    last_force_aux_itime = itime
+
+  end subroutine precompute_force_aux
+
   subroutine force(ux1,uy1,uz1,ep1,dra1,dra2,dra3,record_var)
 
     USE param
@@ -427,8 +493,7 @@ contains
     integer, intent(in) ::record_var
     real(mytype), intent(out)                                       :: dra1(10),dra2(10),dra3(10)
 
-    real(mytype), dimension(ysize(1),ysize(2),ysize(3)) :: ppi2
-    real(mytype), dimension(zsize(1),zsize(2),zsize(3)) :: ppi3
+    ! ppi2 is now module-level (shared with torque_calc via precompute_force_aux)
 
     real(mytype), dimension(nz) :: yLift,xDrag, zLat
     real(mytype) :: yLift_mean,xDrag_mean,zLat_mean
@@ -532,42 +597,7 @@ contains
        return
     endif
 
-    call derx (ta1,ux1,di1,sx,ffx,fsx,fwx,xsize(1),xsize(2),xsize(3),0,1)    ! dudx !x is 1
-    call derx (tb1,uy1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,2) ! dvdx !y is 2
-    call derx (te1,uz1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,3) ! dw/dx!z is 3
-
-    call transpose_x_to_y(ta1,ta2) ! dudx
-    call transpose_x_to_y(tb1,tb2) ! dvdx
-    call transpose_x_to_y(te1,te2) ! dw/dx
-
-    call transpose_x_to_y(ux1,ux2)
-    call transpose_x_to_y(uy1,uy2)
-    call transpose_x_to_y(uz1,uz2)
-    call transpose_x_to_y(ppi1,ppi2)
-
-    call dery (tc2,ux2,di2,sy,ffyp,fsyp,fwyp,ppy,ysize(1),ysize(2),ysize(3),1,1) ! dudy !x is 1
-    call dery (td2,uy2,di2,sy,ffy,fsy,fwy,ppy,ysize(1),ysize(2),ysize(3),0,2)    ! dvdy !y is 2
-    call dery (tf2,uz2,di2,sy,ffyp,fsyp,fwyp,ppy,ysize(1),ysize(2),ysize(3),1,3) ! dw/dy!z is 3
-
-
-    call transpose_y_to_z(ux2,ux3)
-    call transpose_y_to_z(uy2,uy3)
-    call transpose_y_to_z(uz2,uz3)
-
-    call derz (tg3,ux3,di3,sz,ffzp,fszp,fwzp,zsize(1),zsize(2),zsize(3),1,1)  ! du/dz
-    call derz (th3,uy3,di3,sz,ffzp,fszp,fwzp,zsize(1),zsize(2),zsize(3),1,2)  ! dv/dz
-    call derz (ti3,uz3,di3,sz,ffz,fsz,fwz,zsize(1),zsize(2),zsize(3),0,3)     ! dw/dz
-
-    call transpose_z_to_y(tg3,tg2) ! du/dz
-    call transpose_z_to_y(th3,th2) ! dv/dz
-    call transpose_z_to_y(ti3,ti2) !
-
-    call transpose_y_to_x(tc2,tc1) ! dudy
-    call transpose_y_to_x(td2,td1) ! dvdy
-    call transpose_y_to_x(th2,th1) ! dv/dz
-    call transpose_y_to_x(tf2,tf1) ! dw/dy
-    call transpose_y_to_x(tg2,tg1) !
-    call transpose_y_to_x(ti2,ti1) !
+    if (last_force_aux_itime /= itime) call precompute_force_aux(ux1, uy1, uz1)
     !*****************************************************************
     !      Drag and Lift coefficients
     !*****************************************************************
@@ -1169,8 +1199,7 @@ contains
    integer, intent(in) ::record_var
    real(mytype), intent(out)                                       :: dra1(10),dra2(10),dra3(10)
 
-   real(mytype), dimension(ysize(1),ysize(2),ysize(3)) :: ppi2
-   real(mytype), dimension(zsize(1),zsize(2),zsize(3)) :: ppi3
+   ! ppi2 is now module-level (shared with force via precompute_force_aux)
 
    real(mytype), dimension(nz) :: yLift,xDrag, zLat
    real(mytype) :: yLift_mean,xDrag_mean,zLat_mean
@@ -1284,42 +1313,7 @@ contains
       return
    endif
 
-   call derx (ta1,ux1,di1,sx,ffx,fsx,fwx,xsize(1),xsize(2),xsize(3),0,1)    ! dudx !x is 1
-   call derx (tb1,uy1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,2) ! dvdx !y is 2
-   call derx (te1,uz1,di1,sx,ffxp,fsxp,fwxp,xsize(1),xsize(2),xsize(3),1,3) ! dw/dx!z is 3
-
-   call transpose_x_to_y(ta1,ta2) ! dudx
-   call transpose_x_to_y(tb1,tb2) ! dvdx
-   call transpose_x_to_y(te1,te2) ! dw/dx
-
-   call transpose_x_to_y(ux1,ux2)
-   call transpose_x_to_y(uy1,uy2)
-   call transpose_x_to_y(uz1,uz2)
-   call transpose_x_to_y(ppi1,ppi2)
-
-   call dery (tc2,ux2,di2,sy,ffyp,fsyp,fwyp,ppy,ysize(1),ysize(2),ysize(3),1,1) ! dudy !x is 1
-   call dery (td2,uy2,di2,sy,ffy,fsy,fwy,ppy,ysize(1),ysize(2),ysize(3),0,2)    ! dvdy !y is 2
-   call dery (tf2,uz2,di2,sy,ffyp,fsyp,fwyp,ppy,ysize(1),ysize(2),ysize(3),1,3) ! dw/dy!z is 3
-
-
-   call transpose_y_to_z(ux2,ux3)
-   call transpose_y_to_z(uy2,uy3)
-   call transpose_y_to_z(uz2,uz3)
-
-   call derz (tg3,ux3,di3,sz,ffzp,fszp,fwzp,zsize(1),zsize(2),zsize(3),1,1)  ! du/dz
-   call derz (th3,uy3,di3,sz,ffzp,fszp,fwzp,zsize(1),zsize(2),zsize(3),1,2)  ! dv/dz
-   call derz (ti3,uz3,di3,sz,ffz,fsz,fwz,zsize(1),zsize(2),zsize(3),0,3)     ! dw/dz
-
-   call transpose_z_to_y(tg3,tg2) ! du/dz
-   call transpose_z_to_y(th3,th2) ! dv/dz
-   call transpose_z_to_y(ti3,ti2) !
-
-   call transpose_y_to_x(tc2,tc1) ! dudy
-   call transpose_y_to_x(td2,td1) ! dvdy
-   call transpose_y_to_x(th2,th1) ! dv/dz
-   call transpose_y_to_x(tf2,tf1) ! dw/dy
-   call transpose_y_to_x(tg2,tg1) !
-   call transpose_y_to_x(ti2,ti1) !
+   if (last_force_aux_itime /= itime) call precompute_force_aux(ux1, uy1, uz1)
    !*****************************************************************
    !      Drag and Lift coefficients
    !*****************************************************************
