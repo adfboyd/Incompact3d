@@ -398,8 +398,82 @@ subroutine init_ellip (ux1,uy1,uz1,phi1)
     if (nrank .eq. 0) write(*,*) '# init end ok'
 #endif
 
+    call init_body_dat()
+
     return
 end subroutine init_ellip
+
+!############################################################################
+subroutine init_body_dat()
+  !! Open body.dat{N} output files. On a fresh run they are truncated;
+  !! on restart they are trimmed back to t0 so re-restarting from the
+  !! same checkpoint never leaves stale or duplicate rows.
+  use ibm_param, only : nbody
+  implicit none
+  integer :: i
+  character(len=30) :: filename
+  if (nrank /= 0) return
+  do i = 1, nbody
+     write(filename,"('body.dat',I1.1)") i
+     if (irestart == 0) then
+        open(unit=11+i, file=filename, status='replace', form='formatted')
+     else
+        call open_body_dat(11+i, filename, t0)
+     endif
+  enddo
+end subroutine init_body_dat
+
+!############################################################################
+subroutine open_body_dat(iunit, filename, t_restart)
+  !! Open body.dat for append on restart, trimming any entries with
+  !! t > t_restart so that re-restarting from the same checkpoint never
+  !! leaves stale or duplicate data in the file.
+  implicit none
+  integer,          intent(in) :: iunit
+  character(len=*), intent(in) :: filename
+  real(mytype),     intent(in) :: t_restart
+
+  integer            :: ios, tmp_unit
+  character(len=512) :: line
+  real(mytype)       :: t_val
+  logical            :: exists
+  character(len=64)  :: tmpfile
+
+  tmp_unit = iunit + 50
+
+  inquire(file=filename, exist=exists)
+  if (.not. exists) then
+     open(unit=iunit, file=filename, status='new', form='formatted')
+     return
+  endif
+
+  ! Pass 1: copy lines with t <= t_restart to a temp file
+  write(tmpfile,"('body_tmp.dat',I1.1)") iunit - 11
+  open(unit=iunit,    file=filename, status='old',     form='formatted', action='read')
+  open(unit=tmp_unit, file=tmpfile,  status='replace', form='formatted')
+  do
+     read(iunit, '(A)', iostat=ios) line
+     if (ios /= 0) exit
+     read(line, *, iostat=ios) t_val
+     if (ios /= 0) cycle
+     if (t_val <= t_restart + epsilon(t_restart)) write(tmp_unit, '(A)') trim(line)
+  enddo
+  close(iunit)
+  close(tmp_unit)
+
+  ! Pass 2: overwrite original with trimmed content; leave open at end for append
+  open(unit=iunit,    file=filename, status='replace', form='formatted')
+  open(unit=tmp_unit, file=tmpfile,  status='old',     form='formatted', action='read')
+  do
+     read(tmp_unit, '(A)', iostat=ios) line
+     if (ios /= 0) exit
+     write(iunit, '(A)') trim(line)
+  enddo
+  close(tmp_unit, status='delete')
+  ! iunit remains open, positioned at end of file, ready for append
+
+end subroutine open_body_dat
+
 !********************************************************************
 
 !############################################################################
