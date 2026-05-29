@@ -15,7 +15,7 @@ character(len=1),parameter :: NL=char(10) !new line character
 PRIVATE ! All functions/subroutines private by default
 PUBLIC :: init_ellip, boundary_conditions_ellip, postprocess_ellip, &
             geomcomplex_ellip, visu_ellip, visu_ellip_init, update_ellipsoid, &
-            check_body_proximity, update_ellipsoid_cv
+            check_body_proximity, update_ellipsoid_cv, set_ellipsoid_cv_bounds
 
 contains
 
@@ -588,6 +588,29 @@ subroutine visu_ellip(ux1, uy1, uz1, pp3, phi1, ep1, num)
     call write_field(di1, ".", "critq", num, flush = .true.) ! Reusing temporary array, force flush
     endif
 end subroutine visu_ellip
+
+subroutine set_ellipsoid_cv_bounds()
+  !! Set xld/xrd/yld/yud/zld/zrd from the current body position.
+  !! Call this before init_forces() so icvlf is computed from the correct
+  !! position (not the input-file ForceCVs defaults).
+  use forces, only : iforces, xld, xrd, yld, yud, zld, zrd, nvol
+  use ibm_param
+  use complex_geometry, only : nobjmax
+  implicit none
+  real(mytype) :: maxrad
+  integer :: i
+  do i = 1, min(nobjmax, nvol)
+     if (iforces .eq. 1) then
+        maxrad = max(shape(i,1), shape(i,2), shape(i,3))
+        xld(i) = position(i,1) - maxrad * ra(i) * cvl_scalar
+        xrd(i) = position(i,1) + maxrad * ra(i) * cvl_scalar
+        yld(i) = position(i,2) - maxrad * ra(i) * cvl_scalar
+        yud(i) = position(i,2) + maxrad * ra(i) * cvl_scalar
+        zld(i) = position(i,3) - maxrad * ra(i) * cvl_scalar
+        zrd(i) = position(i,3) + maxrad * ra(i) * cvl_scalar
+     endif
+  enddo
+end subroutine set_ellipsoid_cv_bounds
 
 subroutine update_ellipsoid_cv()
   !! Update the CV bounds (xld/xrd/etc.) from the current body position/shape,

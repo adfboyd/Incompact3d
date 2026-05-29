@@ -21,7 +21,7 @@ program xcompact3d
   use param, only : mhd_active
   use particle, only : intt_particles
 
-  use ellip, only : update_ellipsoid, update_ellipsoid_cv
+  use ellip, only : update_ellipsoid, update_ellipsoid_cv, set_ellipsoid_cv_bounds
   use cyl,   only : update_cylinder_state
   implicit none
   integer :: iounit
@@ -153,6 +153,7 @@ subroutine init_xcompact3d()
 
   use param, only : ilesmod, jles,itype
   use param, only : irestart, mhd_active
+  use ellip, only : set_ellipsoid_cv_bounds
   use param, only : periodic_bc
 
   use variables, only : nx, ny, nz, nxm, nym, nzm
@@ -250,6 +251,7 @@ subroutine init_xcompact3d()
   endif
 
   if (iforces.eq.1) then
+     if (itype.eq.itype_ellip) call set_ellipsoid_cv_bounds()
      call init_forces()
      if (irestart==1) then
         call restart_forces(0)
