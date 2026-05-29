@@ -21,11 +21,10 @@ program xcompact3d
   use param, only : mhd_active
   use particle, only : intt_particles
 
-  use ellip, only : update_ellipsoid, check_body_proximity
-  use forces, only : init_forces, iforces, update_forces, xld, xrd, yld, yud, zld, zrd, nvol
+  use ellip, only : update_ellipsoid, update_ellipsoid_cv
+  use cyl,   only : update_cylinder_state
   implicit none
-  real(mytype) :: maxrad
-  integer :: iounit, i, code, ierror
+  integer :: iounit
 
 
 
@@ -71,75 +70,10 @@ program xcompact3d
           if ((iibm.eq.2).or.(iibm.eq.3)) then
              call genepsi3d(ep1)
              if (itype.eq.itype_cyl) then
-                do i = 1, min(nobjmax,nvol)
-                   position(i,1) = cex + ubcx*(t-ifirst*dt)
-                   position(i,2) = cey + ubcy*(t-ifirst*dt)
-                   position(i,3) = zlz * 0.5_mytype
-                   linearVelocity(i,1) = ubcx
-                   linearVelocity(i,2) = ubcy
-                   linearVelocity(i,3) = ubcz
-                   orientation(i,1) = 1.0_mytype
-                   orientation(i,2) = 0.0_mytype
-                   orientation(i,3) = 0.0_mytype
-                   orientation(i,4) = 0.0_mytype
-                   angularVelocity(i,1) = 0.0_mytype
-                   angularVelocity(i,2) = 0.0_mytype
-                   angularVelocity(i,3) = 0.0_mytype
-                   angularVelocity(i,4) = 0.0_mytype
-                   shape(i,1) = ra(i)
-                   shape(i,2) = ra(i)
-                   shape(i,3) = zlz * 0.5_mytype
-                enddo
+                call update_cylinder_state()
+             else if (itype.eq.itype_ellip) then
+                call update_ellipsoid_cv()
              endif
-             do i = 1,min(nobjmax,nvol)
-               if (itype.eq.itype_cyl) then
-                  ! For cylinders, only use x-y radii; z spans full domain
-                  maxrad = max(shape(i,1),shape(i,2))
-               else
-                  maxrad = max(shape(i,1),shape(i,2),shape(i,3))
-               endif
-               if (iforces.eq.1) then
-                  xld(i) = position(i,1) - maxrad * ra(i) * cvl_scalar
-                  xrd(i) = position(i,1) + maxrad * ra(i) * cvl_scalar
-                  yld(i) = position(i,2) - maxrad * ra(i) * cvl_scalar
-                  yud(i) = position(i,2) + maxrad * ra(i) * cvl_scalar
-                  if (itype.eq.itype_cyl) then
-                     ! For cylinders, z bounds span full domain
-                     zld(i) = zero
-                     zrd(i) = zlz
-                  else
-                     zld(i) = position(i,3) - maxrad * ra(i) * cvl_scalar
-                     zrd(i) = position(i,3) + maxrad * ra(i) * cvl_scalar
-                  endif
-                  ! Check boundary violations
-                  if ((xld(i).lt.0).or.(xrd(i).gt.xlx).or.(yld(i).lt.0).or.(yud(i).gt.yly)) then
-                     write(*,*) "Body is too close to boundary!"
-                     call MPI_ABORT(MPI_COMM_WORLD,code,ierror)
-                  endif
-                  if (itype.ne.itype_cyl) then
-                     if ((zld(i).lt.0).or.(zrd(i).gt.zlz)) then
-                        write(*,*) "Body is too close to boundary!"
-                        call MPI_ABORT(MPI_COMM_WORLD,code,ierror)
-                     endif
-                  endif
-               endif
-            enddo
-            if (itype.eq.itype_ellip) call check_body_proximity()
-            ! init_forces() returns early on the second call (ppi1 is already allocated),
-            ! which skips recomputing the integer CV indices (icvlf, icvrt, ...).
-            ! With moving bodies, xld/xrd/etc. above were just updated to track the body,
-            ! so the indices must be recomputed each step — that's update_forces()'s job.
-            ! On restart, itime==ifirst triggers init_forces() (early-return), leaving icvlf
-            ! stale from the initial body position → wrong CV → wrong force integral.
-            ! Always take the update_forces() path; init_forces() runs once during init_xcompact3d.
-            ! Gate on iforces: xld/xrd/etc. are only allocated when iforces=1 (parameters.f90).
-            if (iforces.eq.1) then
-               if (itime.eq.ifirst .and. irestart.eq.0) then
-                  call init_forces()
-               else
-                  call update_forces()
-               endif
-            endif
           else if (iibm.eq.1) then
              call body(ux1,uy1,uz1,ep1)
           endif

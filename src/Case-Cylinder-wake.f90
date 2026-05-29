@@ -18,7 +18,7 @@ module cyl
 
   PRIVATE ! All functions/subroutines private by default
   PUBLIC :: init_cyl, boundary_conditions_cyl, postprocess_cyl, &
-            geomcomplex_cyl, visu_cyl, visu_cyl_init
+            geomcomplex_cyl, visu_cyl, visu_cyl_init, update_cylinder_state
 
 contains
 
@@ -386,5 +386,62 @@ contains
     call write_field(di1, ".", "critq", num, flush = .true.) ! Reusing temporary array, force flush
 
   end subroutine visu_cyl
+
+  subroutine update_cylinder_state()
+    !! Update kinematic state, CV bounds, boundary check, and integer CV
+    !! indices for a translating cylinder (prescribed trajectory).
+    use ibm_param
+    use forces, only : iforces, init_forces, update_forces, xld, xrd, yld, yud, zld, zrd, nvol
+    use complex_geometry, only : nobjmax
+    use MPI
+    implicit none
+
+    real(mytype) :: maxrad
+    integer :: i, code, ierror
+
+    ! Update prescribed kinematic state
+    do i = 1, min(nobjmax, nvol)
+       position(i,1) = cex + ubcx*(t - ifirst*dt)
+       position(i,2) = cey + ubcy*(t - ifirst*dt)
+       position(i,3) = zlz * 0.5_mytype
+       linearVelocity(i,1) = ubcx
+       linearVelocity(i,2) = ubcy
+       linearVelocity(i,3) = ubcz
+       orientation(i,1) = 1.0_mytype
+       orientation(i,2) = 0.0_mytype
+       orientation(i,3) = 0.0_mytype
+       orientation(i,4) = 0.0_mytype
+       angularVelocity(i,1) = 0.0_mytype
+       angularVelocity(i,2) = 0.0_mytype
+       angularVelocity(i,3) = 0.0_mytype
+       angularVelocity(i,4) = 0.0_mytype
+       shape(i,1) = ra(i)
+       shape(i,2) = ra(i)
+       shape(i,3) = zlz * 0.5_mytype
+    enddo
+
+    ! Update CV bounds; z spans the full domain for 2D cylinders
+    if (iforces .eq. 1) then
+       do i = 1, min(nobjmax, nvol)
+          maxrad = max(shape(i,1), shape(i,2))
+          xld(i) = position(i,1) - maxrad * ra(i) * cvl_scalar
+          xrd(i) = position(i,1) + maxrad * ra(i) * cvl_scalar
+          yld(i) = position(i,2) - maxrad * ra(i) * cvl_scalar
+          yud(i) = position(i,2) + maxrad * ra(i) * cvl_scalar
+          zld(i) = zero
+          zrd(i) = zlz
+          if ((xld(i).lt.0).or.(xrd(i).gt.xlx).or.(yld(i).lt.0).or.(yud(i).gt.yly)) then
+             write(*,*) "Body is too close to boundary!"
+             call MPI_ABORT(MPI_COMM_WORLD, code, ierror)
+          endif
+       enddo
+       if (itime.eq.ifirst .and. irestart.eq.0) then
+          call init_forces()
+       else
+          call update_forces()
+       endif
+    endif
+
+  end subroutine update_cylinder_state
 
 end module cyl
