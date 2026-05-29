@@ -1734,6 +1734,7 @@ contains
           fprx=zero
           fpry=zero
           fprz=zero
+          fdix=zero
           fdiy=zero
           fdiz=zero
           do j=jcvlw_lx(iv),jcvup_lx(iv)
