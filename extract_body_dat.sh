@@ -34,13 +34,16 @@ done
 # Parse log files.
 #
 # body.dat column order (from Case-Ellipsoid.f90 write statement):
-#   t  x y z  q1 q2 q3 q4  vx vy vz  wx wy wz  Fx Fy Fz  Tx Ty Tz
+#   t  x y z  q1 q2 q3 q4  vx vy vz  wx wy wz  Fx Fy Fz  Tx Ty Tz  eek
 #
 # Note: the write statement uses angularVelocity(i,2:4), skipping index 1.
 # The log prints all 4 angular velocity components; $5 $6 $7 give indices 2-4.
+# eek (fluid kinetic energy, masked by ep1) is printed once per timestep
+# before the per-body blocks; the same value is written to all body.dat files.
 #
 # Field positions in each log line after leading-whitespace stripping by awk:
 #   "Time step = N/ M, Time unit = T"  →  $NF = T
+#   "Kinetic Energy = eek"              →  $NF = eek
 #   "Body  N"                           →  $1="Body"  $2=N  NF==2
 #   "Position = x y z"                 →  $3 $4 $5
 #   "Orientation = q1 q2 q3 q4"        →  $3 $4 $5 $6
@@ -53,6 +56,10 @@ awk -v nbody="$nbody" '
 /Time step =.*Time unit =/ {
     current_t = $NF + 0
     in_body = 0
+}
+
+$1 == "Kinetic" && $2 == "Energy" {
+    eek = $NF + 0
 }
 
 $1 == "Body" && NF == 2 {
@@ -82,7 +89,7 @@ in_body > 0 && $1 == "Linear" && $2 == "Force" {
 in_body > 0 && $1 == "Torque" {
     tx = $3; ty = $4; tz = $5
     if (in_body <= nbody && current_t > last_t[in_body] + 1e-14) {
-        print current_t, x, y, z, q1, q2, q3, q4, vx, vy, vz, wx, wy, wz, fx, fy, fz, tx, ty, tz \
+        print current_t, x, y, z, q1, q2, q3, q4, vx, vy, vz, wx, wy, wz, fx, fy, fz, tx, ty, tz, eek \
             > ("body.dat" in_body)
         last_t[in_body] = current_t
     }

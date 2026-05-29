@@ -594,10 +594,11 @@ subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
     use forces, only : force, torque_calc, nvol, iforces
     use ellipsoid_utils, only : lin_step, ang_step
     use ibm_param
-    use param, only : zero, dt
+    use param, only : zero, dt, dx, dy, dz, zpfive
     use variables, only : ilist
     use var, only : itime, t
     use decomp_2d_mpi, only : nrank
+    use MPI
 
     implicit none
 
@@ -606,7 +607,8 @@ subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
     real(mytype) :: drag(10), lift(10), lat(10)
     real(mytype) :: grav_effx(10), grav_effy(10), grav_effz(10)
     real(mytype) :: xtorq(10), ytorq(10), ztorq(10)
-    integer :: i
+    real(mytype) :: eek
+    integer :: i, code
 
     ! Body dynamics need forces; if force calculation is disabled, skip the
     ! whole update (body stays at initial position/velocity).
@@ -647,23 +649,31 @@ subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
        angularVelocity(i,:) = angularVelocity_1
     enddo
 
-    if (nrank==0 .and. mod(itime,ilist)==0) then
-       do i = 1, nbody
-          write(11+i,*) t, position(i,1), position(i,2), position(i,3), &
-               orientation(i,1), orientation(i,2), orientation(i,3), orientation(i,4), &
-               linearVelocity(i,1), linearVelocity(i,2), linearVelocity(i,3), &
-               angularVelocity(i,2), angularVelocity(i,3), angularVelocity(i,4), &
-               linearForce(i,1), linearForce(i,2), linearForce(i,3), &
-               torque(i,1), torque(i,2), torque(i,3)
-          flush(11+i)
-          write(*,*) "Body", i
-          write(*,*) "Position =         ", position(i,:)
-          write(*,*) "Orientation =      ", orientation(i,:)
-          write(*,*) "Linear velocity =  ", linearVelocity(i,:)
-          write(*,*) "Angular velocity = ", angularVelocity(i,:)
-          write(*,*) "Linear Force =     ", linearForce(i,:)
-          write(*,*) "Torque =           ", torque(i,:)
-       enddo
+    if (mod(itime,ilist)==0) then
+       ! All ranks contribute to the masked fluid kinetic energy
+       eek = sum(zpfive * ep1 * (ux1**2 + uy1**2 + uz1**2)) * dx * dy * dz
+       call MPI_Allreduce(MPI_IN_PLACE, eek, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+
+       if (nrank==0) then
+          write(*,*) "Kinetic Energy =   ", eek
+          do i = 1, nbody
+             write(11+i,*) t, position(i,1), position(i,2), position(i,3), &
+                  orientation(i,1), orientation(i,2), orientation(i,3), orientation(i,4), &
+                  linearVelocity(i,1), linearVelocity(i,2), linearVelocity(i,3), &
+                  angularVelocity(i,2), angularVelocity(i,3), angularVelocity(i,4), &
+                  linearForce(i,1), linearForce(i,2), linearForce(i,3), &
+                  torque(i,1), torque(i,2), torque(i,3), &
+                  eek
+             flush(11+i)
+             write(*,*) "Body", i
+             write(*,*) "Position =         ", position(i,:)
+             write(*,*) "Orientation =      ", orientation(i,:)
+             write(*,*) "Linear velocity =  ", linearVelocity(i,:)
+             write(*,*) "Angular velocity = ", angularVelocity(i,:)
+             write(*,*) "Linear Force =     ", linearForce(i,:)
+             write(*,*) "Torque =           ", torque(i,:)
+          enddo
+       endif
     endif
 
 end subroutine update_ellipsoid
