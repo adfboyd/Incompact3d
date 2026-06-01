@@ -151,7 +151,7 @@ subroutine init_xcompact3d()
        simu_stats, compute_cfldiff, &
        init_inflow_outflow, read_inflow
 
-  use param, only : ilesmod, jles,itype
+  use param, only : ilesmod, jles, itype, itype_ellip
   use param, only : irestart, mhd_active
   use ellip, only : set_ellipsoid_cv_bounds
   use param, only : periodic_bc
@@ -175,7 +175,7 @@ subroutine init_xcompact3d()
 
   implicit none
 
-  integer :: ierr
+  integer :: ierr, iv
 
   integer :: nargin, FNLength, status, DecInd
   logical :: back
@@ -295,6 +295,14 @@ subroutine init_xcompact3d()
      if (itype.eq.itype_ellip .and. iforces.eq.1) then
         call set_ellipsoid_cv_bounds()
         call update_forces()
+        if (nrank==0) then
+           write(*,*) '====CV bounds updated from restarted body position===='
+           do iv=1,nvol
+              write(*,"('  CV #',I1,' xld=',F8.4,' xrd=',F8.4,' icvlf=',I6,' icvrt=',I6)") &
+                   iv, xld(iv), xrd(iv), icvlf(iv), icvrt(iv)
+           enddo
+           write(*,*) '======================================================'
+        endif
      endif
   endif
 
