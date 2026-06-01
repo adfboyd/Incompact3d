@@ -153,7 +153,7 @@ subroutine init_xcompact3d()
 
   use param, only : ilesmod, jles, itype, itype_ellip
   use param, only : irestart, mhd_active
-  use ellip, only : set_ellipsoid_cv_bounds
+  use ellip, only : set_ellipsoid_cv_bounds, init_body_dat
   use param, only : periodic_bc
 
   use variables, only : nx, ny, nz, nxm, nym, nzm
@@ -291,7 +291,8 @@ subroutine init_xcompact3d()
         call init_sandbox(ux1,uy1,uz1,ep1,phi1,1)
      end if
      call restart(ux1,uy1,uz1,dux1,duy1,duz1,ep1,pp3(:,:,:,1),phi1,dphi1,px1,py1,pz1,rho1,drho1,mu1,0)
-     ! Body state is now loaded — update CV bounds from the restarted position
+     ! Body state is now loaded — open body.dat files for append and update CV bounds
+     if (itype.eq.itype_ellip) call init_body_dat()
      if (itype.eq.itype_ellip .and. iforces.eq.1) then
         call set_ellipsoid_cv_bounds()
         call update_forces()

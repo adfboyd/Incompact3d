@@ -15,7 +15,8 @@ character(len=1),parameter :: NL=char(10) !new line character
 PRIVATE ! All functions/subroutines private by default
 PUBLIC :: init_ellip, boundary_conditions_ellip, postprocess_ellip, &
             geomcomplex_ellip, visu_ellip, visu_ellip_init, update_ellipsoid, &
-            check_body_proximity, update_ellipsoid_cv, set_ellipsoid_cv_bounds
+            check_body_proximity, update_ellipsoid_cv, set_ellipsoid_cv_bounds, &
+            init_body_dat
 
 contains
 
