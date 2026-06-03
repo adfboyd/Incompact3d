@@ -663,7 +663,7 @@ subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
     use forces, only : force, torque_calc, nvol, iforces
     use ellipsoid_utils, only : lin_step, ang_step
     use ibm_param
-    use param, only : zero, dt, dx, dy, dz, zpfive
+    use param, only : zero, one, dt, dx, dy, dz, zpfive
     use variables, only : ilist
     use var, only : itime, t
     use decomp_2d_mpi, only : nrank
@@ -720,7 +720,7 @@ subroutine update_ellipsoid(ux1, uy1, uz1, ep1)
 
     if (mod(itime,ilist)==0) then
        ! All ranks contribute to the masked fluid kinetic energy
-       eek = sum(zpfive * ep1 * (ux1**2 + uy1**2 + uz1**2)) * dx * dy * dz
+       eek = sum(zpfive * (one - ep1) * (ux1**2 + uy1**2 + uz1**2)) * dx * dy * dz
        call MPI_Allreduce(MPI_IN_PLACE, eek, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
 
        if (nrank==0) then
