@@ -508,8 +508,17 @@ contains
 
        if (itype.eq.itype_ellip) then
           if (nrank==0) then
+             inquire(file='body_state.dat', exist=fexists)
+             if (.not. fexists) then
+                write(*,*) 'ERROR: body_state.dat not found — cannot restore body state for restart'
+                call MPI_ABORT(MPI_COMM_WORLD, 1, code)
+             endif
              open(112, file='body_state.dat', action='read', status='old')
-             read(112,*) i  ! nbody — consumed but not checked here
+             read(112,*) j
+             if (j /= nbody) then
+                write(*,*) 'ERROR: body_state.dat contains nbody=', j, 'but current run has nbody=', nbody
+                call MPI_ABORT(MPI_COMM_WORLD, 1, code)
+             endif
              do i = 1, nbody
                 read(112,*) position(i,:)
                 read(112,*) orientation(i,:)
