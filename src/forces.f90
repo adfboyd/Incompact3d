@@ -521,12 +521,14 @@ contains
 
 
     real(mytype) :: uxmid,uymid,uzmid,prmid
+    real(mytype) :: uabsx,uabsy,uabsz,fluxn
     real(mytype) :: dudxmid,dudymid,dudzmid,dvdxmid,dvdymid,dvdzmid
     real(mytype) :: dwdxmid,dwdymid,dwdzmid
     real(mytype) :: fac,fac1,fac2,fac3,tsumx,tsumy,tsumz,centrifugal(3),coriolis(3)
     real(mytype) :: u_rel(3), r_vec(3), dV_cell
     real(mytype) :: fcvx,fcvy,fcvz,fprx,fpry,fprz,fdix,fdiy,fdiz
     real(mytype) :: xmom,ymom,zmom
+    logical :: inviscid_cv
     real(mytype), dimension(ny) :: ztpresx, ztpresy
     real(mytype), dimension(nz) :: zyLift, zxDrag, zzLat
     real(mytype) :: zyLift_mean, zxDrag_mean, zzLat_mean
@@ -542,6 +544,9 @@ contains
     dra1(:) = zero
     dra2(:) = zero
     dra3(:) = zero
+    inviscid_cv = (itype.eq.itype_ellip .and. xnu.eq.zero)
+    ! Inviscid slip uses inertial momentum through the translating Cartesian CV.
+    ! The current CV bounds do not rotate with the body, so omega is not a face velocity.
 
     nvect1=xsize(1)*xsize(2)*xsize(3)
     nvect2=ysize(1)*ysize(2)*ysize(3)
@@ -637,25 +642,21 @@ contains
                tsumy = tsumy + fac2*dV_cell/dt
                tsumz = tsumz + fac3*dV_cell/dt
 
-               ! Body-frame pseudo-force corrections (Coriolis + centrifugal).
-               ! Required because surface fluxes are computed using body-relative velocity
-               ! (so the body-surface integral can be assumed zero via no-slip / u_rel=0).
-               ! For consistency the volume term must include the body-frame pseudo-forces.
-               ! Note: dU/dt and dω/dt × r terms cancel between the frame transformation
-               ! of ∂u/∂t and the explicit translational/Euler pseudo-forces, so only
-               ! Coriolis (2 ω × u_rel) and centrifugal (ω × (ω × r)) remain.
-               r_vec  = [xm,ym,zm] - position(iv,:)
-               call CrossProduct(angularVelocity(iv,2:4), r_vec, rotationalComponent)
-               u_rel(1) = ux1(i,j,k) - linearVelocity(iv,1) - rotationalComponent(1)
-               u_rel(2) = uy1(i,j,k) - linearVelocity(iv,2) - rotationalComponent(2)
-               u_rel(3) = uz1(i,j,k) - linearVelocity(iv,3) - rotationalComponent(3)
-               call coriolis_force(angularVelocity(iv,2:4), u_rel, coriolis)
-               call centrifugal_force(angularVelocity(iv,2:4), r_vec, centrifugal)
-               ! coriolis = +2 ω × u_rel
-               ! centrifugal_force returns -ω × (ω × r), and we want +ω × (ω × r), so subtract.
-               tsumx = tsumx + (coriolis(1) - centrifugal(1))*(one-ep1(i,j,k))*dV_cell
-               tsumy = tsumy + (coriolis(2) - centrifugal(2))*(one-ep1(i,j,k))*dV_cell
-               tsumz = tsumz + (coriolis(3) - centrifugal(3))*(one-ep1(i,j,k))*dV_cell
+               if (.not.inviscid_cv) then
+                  ! Legacy no-slip/body-frame correction paired with relative-momentum fluxes below.
+                  r_vec  = [xm,ym,zm] - position(iv,:)
+                  call CrossProduct(angularVelocity(iv,2:4), r_vec, rotationalComponent)
+                  u_rel(1) = ux1(i,j,k) - linearVelocity(iv,1) - rotationalComponent(1)
+                  u_rel(2) = uy1(i,j,k) - linearVelocity(iv,2) - rotationalComponent(2)
+                  u_rel(3) = uz1(i,j,k) - linearVelocity(iv,3) - rotationalComponent(3)
+                  call coriolis_force(angularVelocity(iv,2:4), u_rel, coriolis)
+                  call centrifugal_force(angularVelocity(iv,2:4), r_vec, centrifugal)
+                  ! coriolis = +2 ω × u_rel
+                  ! centrifugal_force returns -ω × (ω × r), and we want +ω × (ω × r), so subtract.
+                  tsumx = tsumx + (coriolis(1) - centrifugal(1))*(one-ep1(i,j,k))*dV_cell
+                  tsumy = tsumy + (coriolis(2) - centrifugal(2))*(one-ep1(i,j,k))*dV_cell
+                  tsumz = tsumz + (coriolis(3) - centrifugal(3))*(one-ep1(i,j,k))*dV_cell
+               endif
              enddo
           enddo
           tunstxl(xstart(3)-1+k)=tsumx
@@ -729,13 +730,23 @@ contains
 
                 !momentum flux
                 call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-                uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-                uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-                uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+                uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+                uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+                uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+                uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+                uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+                uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-                fcvx  = fcvx -uxmid*uymid*dx*dz
-                fcvy  = fcvy -uymid*uymid*dx*dz
-                fcvz  = fcvz -uymid*uzmid*dx*dz
+                if (inviscid_cv) then
+                   fluxn = uabsy - linearVelocity(iv,2)
+                   fcvx  = fcvx -uabsx*fluxn*dx*dz
+                   fcvy  = fcvy -uabsy*fluxn*dx*dz
+                   fcvz  = fcvz -uabsz*fluxn*dx*dz
+                else
+                   fcvx  = fcvx -uxmid*uymid*dx*dz
+                   fcvy  = fcvy -uymid*uymid*dx*dz
+                   fcvz  = fcvz -uymid*uzmid*dx*dz
+                endif
 
 
                 !pressure
@@ -788,13 +799,23 @@ contains
 
                !momentum flux
                call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-               uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-               uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-               uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+               uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+               uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+               uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+               uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+               uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+               uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-                fcvx = fcvx +uxmid*uymid*dx*dz
-                fcvy = fcvy +uymid*uymid*dx*dz
-                fcvz = fcvz +uymid*uzmid*dx*dz
+                if (inviscid_cv) then
+                   fluxn = uabsy - linearVelocity(iv,2)
+                   fcvx = fcvx +uabsx*fluxn*dx*dz
+                   fcvy = fcvy +uabsy*fluxn*dx*dz
+                   fcvz = fcvz +uabsz*fluxn*dx*dz
+                else
+                   fcvx = fcvx +uxmid*uymid*dx*dz
+                   fcvy = fcvy +uymid*uymid*dx*dz
+                   fcvz = fcvz +uymid*uzmid*dx*dz
+                endif
 
 
                 !pressure
@@ -847,14 +868,23 @@ contains
                !  write(*,*) 'Calculating force at left x boundary', [xm,ym,zm]
                 !momentum flux
                 call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-                uxmid = half*(ux2(i,j,k)+ux2(i,j+1,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-                uymid = half*(uy2(i,j,k)+uy2(i,j+1,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-                uzmid = half*(uz2(i,j,k)+uz2(i,j+1,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+                uabsx = half*(ux2(i,j,k)+ux2(i,j+1,k))
+                uabsy = half*(uy2(i,j,k)+uy2(i,j+1,k))
+                uabsz = half*(uz2(i,j,k)+uz2(i,j+1,k))
+                uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+                uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+                uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-
-                fcvx = fcvx -uxmid*uxmid*del_y(j)*dz
-                fcvy = fcvy -uxmid*uymid*del_y(j)*dz
-                fcvz = fcvz -uxmid*uzmid*del_y(j)*dz
+                if (inviscid_cv) then
+                   fluxn = uabsx - linearVelocity(iv,1)
+                   fcvx = fcvx -uabsx*fluxn*del_y(j)*dz
+                   fcvy = fcvy -uabsy*fluxn*del_y(j)*dz
+                   fcvz = fcvz -uabsz*fluxn*del_y(j)*dz
+                else
+                   fcvx = fcvx -uxmid*uxmid*del_y(j)*dz
+                   fcvy = fcvy -uxmid*uymid*del_y(j)*dz
+                   fcvz = fcvz -uxmid*uzmid*del_y(j)*dz
+                endif
 
 
                 !pressure
@@ -905,14 +935,23 @@ contains
 
                 !momentum flux
                 call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-                uxmid = half*(ux2(i,j,k)+ux2(i,j+1,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-                uymid = half*(uy2(i,j,k)+uy2(i,j+1,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-                uzmid = half*(uz2(i,j,k)+uz2(i,j+1,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+                uabsx = half*(ux2(i,j,k)+ux2(i,j+1,k))
+                uabsy = half*(uy2(i,j,k)+uy2(i,j+1,k))
+                uabsz = half*(uz2(i,j,k)+uz2(i,j+1,k))
+                uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+                uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+                uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-
-                fcvx = fcvx + uxmid*uxmid*del_y(j)*dz
-                fcvy = fcvy + uxmid*uymid*del_y(j)*dz
-                fcvz = fcvz + uxmid*uzmid*del_y(j)*dz
+                if (inviscid_cv) then
+                   fluxn = uabsx - linearVelocity(iv,1)
+                   fcvx = fcvx +uabsx*fluxn*del_y(j)*dz
+                   fcvy = fcvy +uabsy*fluxn*del_y(j)*dz
+                   fcvz = fcvz +uabsz*fluxn*del_y(j)*dz
+                else
+                   fcvx = fcvx + uxmid*uxmid*del_y(j)*dz
+                   fcvy = fcvy + uxmid*uymid*del_y(j)*dz
+                   fcvz = fcvz + uxmid*uzmid*del_y(j)*dz
+                endif
 
 
                 !pressure
@@ -970,14 +1009,24 @@ contains
 
                  !momentum flux
                  call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-                 uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-                 uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-                 uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+                 uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+                 uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+                 uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+                 uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+                 uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+                 uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
                  ! +(u.n)*u*dA convention; n=-zhat on lower-z face -> -uz factor.
-                 fcvx= fcvx -uxmid*uzmid*dx*dy
-                 fcvy= fcvy -uymid*uzmid*dx*dy
-                 fcvz= fcvz -uzmid*uzmid*dx*dy
+                 if (inviscid_cv) then
+                    fluxn = uabsz - linearVelocity(iv,3)
+                    fcvx= fcvx -uabsx*fluxn*dx*dy
+                    fcvy= fcvy -uabsy*fluxn*dx*dy
+                    fcvz= fcvz -uabsz*fluxn*dx*dy
+                 else
+                    fcvx= fcvx -uxmid*uzmid*dx*dy
+                    fcvy= fcvy -uymid*uzmid*dx*dy
+                    fcvz= fcvz -uzmid*uzmid*dx*dy
+                 endif
 
                  !pressure
                  prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
@@ -1035,14 +1084,24 @@ contains
                call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
               !  write(*,*) 'Calculating force at right z boundary', [xm,ym,zm]
 
-               uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-               uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-               uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+               uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+               uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+               uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+               uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+               uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+               uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
                  ! +(u.n)*u*dA convention; n=+zhat on upper-z face -> +uz factor.
-                 fcvx= fcvx +uxmid*uzmid*dx*dy
-                 fcvy= fcvy +uymid*uzmid*dx*dy
-                 fcvz= fcvz +uzmid*uzmid*dx*dy
+                 if (inviscid_cv) then
+                    fluxn = uabsz - linearVelocity(iv,3)
+                    fcvx= fcvx +uabsx*fluxn*dx*dy
+                    fcvy= fcvy +uabsy*fluxn*dx*dy
+                    fcvz= fcvz +uabsz*fluxn*dx*dy
+                 else
+                    fcvx= fcvx +uxmid*uzmid*dx*dy
+                    fcvy= fcvy +uymid*uzmid*dx*dy
+                    fcvz= fcvz +uzmid*uzmid*dx*dy
+                 endif
 
                  !pressure
                  prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
@@ -1227,11 +1286,13 @@ contains
 
 
    real(mytype) :: uxmid,uymid,uzmid,prmid
+   real(mytype) :: uabsx,uabsy,uabsz,fluxn
    real(mytype) :: dudxmid,dudymid,dudzmid,dvdxmid,dvdymid,dvdzmid
    real(mytype) :: dwdxmid,dwdymid,dwdzmid
    real(mytype) :: fac,fac1,fac2,fac3,tsumx,tsumy,tsumz,centrifugal(3),coriolis(3)
    real(mytype) :: fcvx,fcvy,fcvz,fprx,fpry,fprz,fdix,fdiy,fdiz
    real(mytype) :: xmom,ymom,zmom
+   logical :: inviscid_cv
    real(mytype), dimension(ny) :: ztpresx, ztpresy
    real(mytype), dimension(nz) :: zyLift, zxDrag, zzLat
    real(mytype) :: zyLift_mean, zxDrag_mean, zzLat_mean
@@ -1248,6 +1309,9 @@ contains
    dra1(:) = zero
    dra2(:) = zero
    dra3(:) = zero
+   inviscid_cv = (itype.eq.itype_ellip .and. xnu.eq.zero)
+   ! Inviscid slip uses inertial angular momentum through the translating Cartesian CV.
+   ! The current CV bounds do not rotate with the body, so omega is not a face velocity.
 
 
    nvect1=xsize(1)*xsize(2)*xsize(3)
@@ -1357,26 +1421,24 @@ contains
               tsumy = tsumy + angular_velocity_result(2)*dV_cell/dt
               tsumz = tsumz + angular_velocity_result(3)*dV_cell/dt
 
-              ! Body-frame pseudo-force torque corrections (Coriolis + centrifugal).
-              ! In body frame the body-surface integral vanishes (no-slip → u_rel=0);
-              ! the volume term must include the body-frame pseudo-forces for consistency.
-              ! dU/dt and dω/dt × r contributions cancel between the frame transformation
-              ! of ∂u/∂t and the explicit translational/Euler pseudo-forces.
-              call CrossProduct(angularVelocity(iv,2:4), r_vec, rotationalComponent)
-              u_rel(1) = ux1(i,j,k) - linearVelocity(iv,1) - rotationalComponent(1)
-              u_rel(2) = uy1(i,j,k) - linearVelocity(iv,2) - rotationalComponent(2)
-              u_rel(3) = uz1(i,j,k) - linearVelocity(iv,3) - rotationalComponent(3)
-              call coriolis_force(angularVelocity(iv,2:4), u_rel, coriolis)
-              call centrifugal_force(angularVelocity(iv,2:4), r_vec, centrifugal)
-              ! coriolis = +2 ω × u_rel ; centrifugal_force returns -ω × (ω × r), so subtract.
-              pseudo_force(1) = coriolis(1) - centrifugal(1)
-              pseudo_force(2) = coriolis(2) - centrifugal(2)
-              pseudo_force(3) = coriolis(3) - centrifugal(3)
-              ! Torque contribution: pseudo_force × r (same sign convention as ∂u/∂t × r above)
-              call crossProduct(pseudo_force, r_vec, pseudo_torque)
-              tsumx = tsumx + pseudo_torque(1)*(one-ep1(i,j,k))*dV_cell
-              tsumy = tsumy + pseudo_torque(2)*(one-ep1(i,j,k))*dV_cell
-              tsumz = tsumz + pseudo_torque(3)*(one-ep1(i,j,k))*dV_cell
+              if (.not.inviscid_cv) then
+                 ! Legacy no-slip/body-frame correction paired with relative angular-momentum fluxes below.
+                 call CrossProduct(angularVelocity(iv,2:4), r_vec, rotationalComponent)
+                 u_rel(1) = ux1(i,j,k) - linearVelocity(iv,1) - rotationalComponent(1)
+                 u_rel(2) = uy1(i,j,k) - linearVelocity(iv,2) - rotationalComponent(2)
+                 u_rel(3) = uz1(i,j,k) - linearVelocity(iv,3) - rotationalComponent(3)
+                 call coriolis_force(angularVelocity(iv,2:4), u_rel, coriolis)
+                 call centrifugal_force(angularVelocity(iv,2:4), r_vec, centrifugal)
+                 ! coriolis = +2 ω × u_rel ; centrifugal_force returns -ω × (ω × r), so subtract.
+                 pseudo_force(1) = coriolis(1) - centrifugal(1)
+                 pseudo_force(2) = coriolis(2) - centrifugal(2)
+                 pseudo_force(3) = coriolis(3) - centrifugal(3)
+                 ! Torque contribution: pseudo_force × r (same sign convention as ∂u/∂t × r above)
+                 call crossProduct(pseudo_force, r_vec, pseudo_torque)
+                 tsumx = tsumx + pseudo_torque(1)*(one-ep1(i,j,k))*dV_cell
+                 tsumy = tsumy + pseudo_torque(2)*(one-ep1(i,j,k))*dV_cell
+                 tsumz = tsumz + pseudo_torque(3)*(one-ep1(i,j,k))*dV_cell
+              endif
             enddo
          enddo
          tunstxl(xstart(3)-1+k)=tsumx
@@ -1453,13 +1515,23 @@ contains
 
                !momentum flux
                call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-               uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-               uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-               uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+               uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+               uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+               uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+               uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+               uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+               uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-               fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uymid*dx*dz
-               fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uymid*dx*dz
-               fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uymid*dx*dz
+               if (inviscid_cv) then
+                  fluxn = uabsy - linearVelocity(iv,2)
+                  fcvx = fcvx -(uabsy*radial(3)-uabsz*radial(2))*fluxn*dx*dz
+                  fcvy = fcvy -(uabsz*radial(1)-uabsx*radial(3))*fluxn*dx*dz
+                  fcvz = fcvz -(uabsx*radial(2)-uabsy*radial(1))*fluxn*dx*dz
+               else
+                  fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uymid*dx*dz
+                  fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uymid*dx*dz
+                  fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uymid*dx*dz
+               endif
 
 
                !pressure
@@ -1526,13 +1598,23 @@ contains
               !momentum flux
               call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
               radial = [xm,ym,zm]-position(iv,:)
-              uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-              uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-              uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+              uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+              uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+              uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+              uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+              uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+              uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-               fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uymid*dx*dz
-               fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uymid*dx*dz
-               fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uymid*dx*dz
+               if (inviscid_cv) then
+                  fluxn = uabsy - linearVelocity(iv,2)
+                  fcvx = fcvx +(uabsy*radial(3)-uabsz*radial(2))*fluxn*dx*dz
+                  fcvy = fcvy +(uabsz*radial(1)-uabsx*radial(3))*fluxn*dx*dz
+                  fcvz = fcvz +(uabsx*radial(2)-uabsy*radial(1))*fluxn*dx*dz
+               else
+                  fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uymid*dx*dz
+                  fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uymid*dx*dz
+                  fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uymid*dx*dz
+               endif
 
 
                !pressure
@@ -1598,13 +1680,23 @@ contains
                radial = [xm,ym,zm]-position(iv,:)
 
                call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-               uxmid = half*(ux2(i,j,k)+ux2(i,j+1,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-               uymid = half*(uy2(i,j,k)+uy2(i,j+1,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-               uzmid = half*(uz2(i,j,k)+uz2(i,j+1,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+               uabsx = half*(ux2(i,j,k)+ux2(i,j+1,k))
+               uabsy = half*(uy2(i,j,k)+uy2(i,j+1,k))
+               uabsz = half*(uz2(i,j,k)+uz2(i,j+1,k))
+               uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+               uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+               uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-               fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uxmid*del_y(j)*dz
-               fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uxmid*del_y(j)*dz
-               fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uxmid*del_y(j)*dz
+               if (inviscid_cv) then
+                  fluxn = uabsx - linearVelocity(iv,1)
+                  fcvx = fcvx -(uabsy*radial(3)-uabsz*radial(2))*fluxn*del_y(j)*dz
+                  fcvy = fcvy -(uabsz*radial(1)-uabsx*radial(3))*fluxn*del_y(j)*dz
+                  fcvz = fcvz -(uabsx*radial(2)-uabsy*radial(1))*fluxn*del_y(j)*dz
+               else
+                  fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uxmid*del_y(j)*dz
+                  fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uxmid*del_y(j)*dz
+                  fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uxmid*del_y(j)*dz
+               endif
 
 
                !pressure
@@ -1670,14 +1762,23 @@ contains
 
                !momentum flux
                call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-               uxmid = half*(ux2(i,j,k)+ux2(i,j+1,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-               uymid = half*(uy2(i,j,k)+uy2(i,j+1,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-               uzmid = half*(uz2(i,j,k)+uz2(i,j+1,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+               uabsx = half*(ux2(i,j,k)+ux2(i,j+1,k))
+               uabsy = half*(uy2(i,j,k)+uy2(i,j+1,k))
+               uabsz = half*(uz2(i,j,k)+uz2(i,j+1,k))
+               uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+               uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+               uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-
-               fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uxmid*del_y(j)*dz
-               fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uxmid*del_y(j)*dz
-               fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uxmid*del_y(j)*dz
+               if (inviscid_cv) then
+                  fluxn = uabsx - linearVelocity(iv,1)
+                  fcvx = fcvx +(uabsy*radial(3)-uabsz*radial(2))*fluxn*del_y(j)*dz
+                  fcvy = fcvy +(uabsz*radial(1)-uabsx*radial(3))*fluxn*del_y(j)*dz
+                  fcvz = fcvz +(uabsx*radial(2)-uabsy*radial(1))*fluxn*del_y(j)*dz
+               else
+                  fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uxmid*del_y(j)*dz
+                  fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uxmid*del_y(j)*dz
+                  fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uxmid*del_y(j)*dz
+               endif
 
 
 
@@ -1751,13 +1852,23 @@ contains
                 radial = [xm,ym,zm]-position(iv,:)
 
                 call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-                uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-                uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-                uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+                uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+                uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+                uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+                uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+                uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+                uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-                fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j) !!!CHANGE
-                fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
-                fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+                if (inviscid_cv) then
+                   fluxn = uabsz - linearVelocity(iv,3)
+                   fcvx = fcvx -(uabsy*radial(3)-uabsz*radial(2))*fluxn*dx*del_y(j)
+                   fcvy = fcvy -(uabsz*radial(1)-uabsx*radial(3))*fluxn*dx*del_y(j)
+                   fcvz = fcvz -(uabsx*radial(2)-uabsy*radial(1))*fluxn*dx*del_y(j)
+                else
+                   fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
+                   fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
+                   fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+                endif
 
                 !pressure
                 prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
@@ -1827,13 +1938,23 @@ contains
               call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
              !  write(*,*) 'Calculating force at right z boundary', [xm,ym,zm]
 
-              uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
-              uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
-              uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
+              uabsx = half*(ux1(i,j,k)+ux1(i+1,j,k))
+              uabsy = half*(uy1(i,j,k)+uy1(i+1,j,k))
+              uabsz = half*(uz1(i,j,k)+uz1(i+1,j,k))
+              uxmid = uabsx - linearVelocity(iv,1) - rotationalComponent(1)
+              uymid = uabsy - linearVelocity(iv,2) - rotationalComponent(2)
+              uzmid = uabsz - linearVelocity(iv,3) - rotationalComponent(3)
 
-              fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
-              fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
-              fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+              if (inviscid_cv) then
+                 fluxn = uabsz - linearVelocity(iv,3)
+                 fcvx = fcvx +(uabsy*radial(3)-uabsz*radial(2))*fluxn*dx*del_y(j)
+                 fcvy = fcvy +(uabsz*radial(1)-uabsx*radial(3))*fluxn*dx*del_y(j)
+                 fcvz = fcvz +(uabsx*radial(2)-uabsy*radial(1))*fluxn*dx*del_y(j)
+              else
+                 fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
+                 fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
+                 fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+              endif
 
 
                 !pressure

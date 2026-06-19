@@ -34,4 +34,10 @@ build*
 checkpoint
 restart*
 forces.dat*
+body.dat*
+torques.dat*
 data/
+probes/
+__pycache__/
+ellipsoid_dev/runs/*
+!ellipsoid_dev/runs/.gitkeep

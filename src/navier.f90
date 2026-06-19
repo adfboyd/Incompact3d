@@ -291,7 +291,7 @@ contains
        tb1(:,:,:) = uy1(:,:,:)
        tc1(:,:,:) = uz1(:,:,:)
     else if (itype.eq.itype_ellip) then
-       call navierFieldGen(ep1, ep1_ux, ep1_uy, ep1_uz)
+       call navierFieldGen(ep1, ep1_ux, ep1_uy, ep1_uz, ux1, uy1, uz1)
        ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ep1_ux(:,:,:)
        tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1_uy(:,:,:)
        tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1_uz(:,:,:)
@@ -419,7 +419,7 @@ contains
       tb1(:,:,:) = uy1(:,:,:)
       tc1(:,:,:) = uz1(:,:,:)
    else if (itype.eq.itype_ellip) then
-      call navierFieldGen(ep1, ep1_ux, ep1_uy, ep1_uz)
+      call navierFieldGen(ep1, ep1_ux, ep1_uy, ep1_uz, ux1, uy1, uz1)
       ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ep1_ux(:,:,:)
       tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1_uy(:,:,:)
       tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1_uz(:,:,:)

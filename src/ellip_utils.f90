@@ -232,6 +232,55 @@ contains
 
    end subroutine    
 
+   subroutine EllipsoidNormal(point, centre, orientation, shape, normal)
+     real(mytype), intent(in)  :: point(3), centre(3), orientation(4), shape(3)
+     real(mytype), intent(out) :: normal(3)
+     real(mytype)              :: trans_point(3), rotated_point(3), normal_body(3)
+     real(mytype)              :: orientation_c(4), normal_mag
+     integer                   :: i
+
+     trans_point = point - centre
+
+     call RotatePoint(trans_point, orientation, rotated_point)
+
+     do i = 1,3
+        normal_body(i) = rotated_point(i) / (shape(i) * shape(i))
+     enddo
+
+     call QuaternionConjugate(orientation, orientation_c)
+     call RotatePoint(normal_body, orientation_c, normal)
+
+     normal_mag = sqrt(sum(normal * normal))
+     if (normal_mag.gt.zero) then
+        normal = normal / normal_mag
+     else
+        normal = zero
+     endif
+   end subroutine EllipsoidNormal
+
+   subroutine EllipsoidNormal_Multi(point, normal)
+     real(mytype), intent(in)  :: point(3)
+     real(mytype), intent(out) :: normal(3)
+     real(mytype)              :: radii(10), r
+     integer                   :: i, i_closest
+
+     radii(:) = 10000000.
+     do i = 1,nbody
+       call EllipsoidalRadius(point, position(i,:), orientation(i,:), shape(i,:), r)
+       radii(i) = r
+     enddo
+     i_closest=1
+     if (nbody.gt.1) then
+       do i = 2,nbody
+         if (radii(i) < radii(i_closest)) then
+           i_closest=i
+         endif
+       enddo
+     endif
+
+     call EllipsoidNormal(point, position(i_closest,:), orientation(i_closest,:), shape(i_closest,:), normal)
+   end subroutine EllipsoidNormal_Multi
+
    subroutine EllipsoidalRadius_debug(point, centre, orientation, shape, radius)
     real(mytype), intent(in) :: point(3), centre(3), orientation(4), shape(3)
     real(mytype), intent(out) :: radius
@@ -337,12 +386,14 @@ contains
   end subroutine is_inside_ellipsoid
 
 
-  subroutine navierFieldGen(ep1, ep1_x, ep1_y, ep1_z)
+  subroutine navierFieldGen(ep1, ep1_x, ep1_y, ep1_z, ux1, uy1, uz1)
     use param
     use decomp_2d
     real(mytype), dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ep1
+    real(mytype), dimension(xsize(1),xsize(2),xsize(3)), intent(in) :: ux1, uy1, uz1
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(out) :: ep1_x, ep1_y, ep1_z
-    real(mytype) :: xm, ym, zm, point(3), x_pv, y_pv, z_pv, pointVelocity(3)
+    real(mytype) :: xm, ym, zm, point(3), x_pv, y_pv, z_pv
+    real(mytype) :: pointVelocity(3), normal(3), fluidVelocity(3)
     integer :: i,j,k
 
     do k = 1,xsize(3)
@@ -354,6 +405,12 @@ contains
           point=[xm,ym,zm]
           if (ep1(i,j,k).eq.1) then 
             call CalculatePointVelocity_Multi(point, pointVelocity)
+            if (xnu.eq.zero) then
+              call EllipsoidNormal_Multi(point, normal)
+              fluidVelocity = [ux1(i,j,k), uy1(i,j,k), uz1(i,j,k)]
+              pointVelocity = fluidVelocity + &
+                   (sum(pointVelocity * normal) - sum(fluidVelocity * normal)) * normal
+            endif
             x_pv=pointVelocity(1)
             y_pv=pointVelocity(2)
             z_pv=pointVelocity(3)

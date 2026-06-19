@@ -9,7 +9,94 @@ module ibm
 
   public
 
+  integer, save :: ellip_slip_count(9) = 0
+  real(mytype), save :: ellip_slip_before_sum2(9) = 0._mytype
+  real(mytype), save :: ellip_slip_before_max(9) = 0._mytype
+  real(mytype), save :: ellip_slip_after_sum2(9) = 0._mytype
+  real(mytype), save :: ellip_slip_after_max(9) = 0._mytype
+  real(mytype), save :: ellip_slip_full_sum2(9) = 0._mytype
+  real(mytype), save :: ellip_slip_full_max(9) = 0._mytype
+  real(mytype), save :: ellip_slip_tangent_sum2(9) = 0._mytype
+  real(mytype), save :: ellip_slip_tangent_max(9) = 0._mytype
+
 contains
+  !############################################################################
+  subroutine reset_ellip_slip_bcimp_stats()
+
+    ellip_slip_count = 0
+    ellip_slip_before_sum2 = 0._mytype
+    ellip_slip_before_max = 0._mytype
+    ellip_slip_after_sum2 = 0._mytype
+    ellip_slip_after_max = 0._mytype
+    ellip_slip_full_sum2 = 0._mytype
+    ellip_slip_full_max = 0._mytype
+    ellip_slip_tangent_sum2 = 0._mytype
+    ellip_slip_tangent_max = 0._mytype
+
+  end subroutine reset_ellip_slip_bcimp_stats
+  !############################################################################
+  subroutine report_ellip_slip_bcimp_stats(stage)
+
+    use MPI
+    use param, only : t, itime, itr
+
+    implicit none
+
+    character(len=*), intent(in) :: stage
+    integer :: code, field_id
+    integer :: count_global(9)
+    real(mytype) :: before_sum2_global(9), before_max_global(9)
+    real(mytype) :: after_sum2_global(9), after_max_global(9)
+    real(mytype) :: full_sum2_global(9), full_max_global(9)
+    real(mytype) :: tangent_sum2_global(9), tangent_max_global(9)
+    real(mytype) :: before_rms, after_rms, full_rms, tangent_rms
+    logical, save :: wrote_header = .false.
+
+    count_global = ellip_slip_count
+    before_sum2_global = ellip_slip_before_sum2
+    before_max_global = ellip_slip_before_max
+    after_sum2_global = ellip_slip_after_sum2
+    after_max_global = ellip_slip_after_max
+    full_sum2_global = ellip_slip_full_sum2
+    full_max_global = ellip_slip_full_max
+    tangent_sum2_global = ellip_slip_tangent_sum2
+    tangent_max_global = ellip_slip_tangent_max
+
+    call MPI_Allreduce(MPI_IN_PLACE, count_global, 9, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, before_sum2_global, 9, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, before_max_global, 9, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, after_sum2_global, 9, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, after_max_global, 9, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, full_sum2_global, 9, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, full_max_global, 9, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, tangent_sum2_global, 9, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, tangent_max_global, 9, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+
+    if (nrank == 0) then
+       open(unit=136, file='ellipsoid_slip_bcimp_stats.dat', status='unknown', &
+            position='append', form='formatted')
+       if (.not. wrote_header) then
+          write(136,*) '# t itime itr stage field count normal_before_max normal_before_rms ', &
+               'normal_after_max normal_after_rms full_correction_max full_correction_rms ', &
+               'tangent_correction_max tangent_correction_rms'
+          wrote_header = .true.
+       endif
+       do field_id = 1, 9
+          if (count_global(field_id) > 0) then
+             before_rms = sqrt(before_sum2_global(field_id) / real(count_global(field_id), mytype))
+             after_rms = sqrt(after_sum2_global(field_id) / real(count_global(field_id), mytype))
+             full_rms = sqrt(full_sum2_global(field_id) / real(count_global(field_id), mytype))
+             tangent_rms = sqrt(tangent_sum2_global(field_id) / real(count_global(field_id), mytype))
+             write(136,'(es16.8,1x,i8,1x,i4,1x,a32,1x,i2,1x,i12,1x,8(es16.8,1x))') &
+                  t, itime, itr, trim(stage), field_id, count_global(field_id), &
+                  before_max_global(field_id), before_rms, after_max_global(field_id), after_rms, &
+                  full_max_global(field_id), full_rms, tangent_max_global(field_id), tangent_rms
+          endif
+       enddo
+       close(136)
+    endif
+
+  end subroutine report_ellip_slip_bcimp_stats
   !############################################################################
   subroutine corgp_IBM (ux,uy,uz,px,py,pz,nlock)
     USE param
@@ -397,12 +484,81 @@ contains
 !***************************************************************************
 !***************************************************************************
 !
+subroutine ellip_slip_bcimp(point, pointVelocity, lind, nearest_value, nearestVelocity, bcimp)
+
+  USE param, only : itype, itype_ellip, xnu, zero
+  USE ellipsoid_utils, ONLY: EllipsoidNormal_Multi
+
+  implicit none
+
+  real(mytype), intent(in)    :: point(3), pointVelocity(3), nearest_value, nearestVelocity(3)
+  integer,      intent(in)    :: lind
+  real(mytype), intent(inout) :: bcimp
+  integer                    :: field_id
+  real(mytype)               :: normal(3), slipVelocity(3)
+  real(mytype)               :: bodyNormalVelocity, nearestNormalVelocity
+  real(mytype)               :: normalBefore, normalAfter, fullCorrection, tangentCorrection
+  real(mytype)               :: correction(3)
+
+  if (itype.ne.itype_ellip .or. xnu.ne.zero) return
+
+  field_id = abs(lind)
+  if (field_id.lt.1 .or. field_id.gt.9) then
+     bcimp = nearest_value
+     return
+  endif
+
+  call EllipsoidNormal_Multi(point, normal)
+  bodyNormalVelocity = sum(pointVelocity * normal)
+  nearestNormalVelocity = sum(nearestVelocity * normal)
+  slipVelocity = nearestVelocity + (bodyNormalVelocity - nearestNormalVelocity) * normal
+  correction = slipVelocity - nearestVelocity
+  normalBefore = abs(nearestNormalVelocity - bodyNormalVelocity)
+  normalAfter = abs(sum(slipVelocity * normal) - bodyNormalVelocity)
+  fullCorrection = sqrt(sum(correction * correction))
+  tangentCorrection = sqrt(max(zero, fullCorrection * fullCorrection - &
+       (bodyNormalVelocity - nearestNormalVelocity) * (bodyNormalVelocity - nearestNormalVelocity)))
+
+  ellip_slip_count(field_id) = ellip_slip_count(field_id) + 1
+  ellip_slip_before_sum2(field_id) = ellip_slip_before_sum2(field_id) + normalBefore * normalBefore
+  ellip_slip_before_max(field_id) = max(ellip_slip_before_max(field_id), normalBefore)
+  ellip_slip_after_sum2(field_id) = ellip_slip_after_sum2(field_id) + normalAfter * normalAfter
+  ellip_slip_after_max(field_id) = max(ellip_slip_after_max(field_id), normalAfter)
+  ellip_slip_full_sum2(field_id) = ellip_slip_full_sum2(field_id) + fullCorrection * fullCorrection
+  ellip_slip_full_max(field_id) = max(ellip_slip_full_max(field_id), fullCorrection)
+  ellip_slip_tangent_sum2(field_id) = ellip_slip_tangent_sum2(field_id) + tangentCorrection * tangentCorrection
+  ellip_slip_tangent_max(field_id) = max(ellip_slip_tangent_max(field_id), tangentCorrection)
+
+  select case (field_id)
+  case (1)
+     bcimp = slipVelocity(1)
+  case (2)
+     bcimp = slipVelocity(2)
+  case (3)
+     bcimp = slipVelocity(3)
+  case (4)
+     bcimp = slipVelocity(1) * slipVelocity(1)
+  case (5)
+     bcimp = slipVelocity(2) * slipVelocity(2)
+  case (6)
+     bcimp = slipVelocity(3) * slipVelocity(3)
+  case (7)
+     bcimp = slipVelocity(1) * slipVelocity(2)
+  case (8)
+     bcimp = slipVelocity(1) * slipVelocity(3)
+  case (9)
+     bcimp = slipVelocity(2) * slipVelocity(3)
+  end select
+
+end subroutine ellip_slip_bcimp
+
 subroutine cubsplx(u,lind)
   !
   USE param
   USE complex_geometry
   USE decomp_2d
   USE variables
+  USE var, ONLY: ux1, uy1, uz1
   USE ibm_param
   USE ellipsoid_utils, ONLY: CalculatePointVelocity_Multi, ibm_bcimp_calc
     !
@@ -414,42 +570,47 @@ subroutine cubsplx(u,lind)
   integer                                            :: i,j,k
   real(mytype)                                       :: x,y,z
   integer                                            :: ix              ! Counter for Skipping Points
-  integer                                            :: ipif,ipol,nxpif 
+  integer                                            :: ipif,ipol,nxpif
   integer                                            :: ipoli,ipolf     ! Starting and Ending Points for the Reconstruction
-  real(mytype)                                       :: xpol,ypol       ! Position and Value of the Reconstructed Solution 
-  real(mytype),dimension(10)                         :: xa,ya           ! Position and Value of the Input Data Function 
-  integer                                            :: ia,na           
+  real(mytype)                                       :: xpol,ypol       ! Position and Value of the Reconstructed Solution
+  real(mytype),dimension(10)                         :: xa,ya           ! Position and Value of the Input Data Function
+  integer                                            :: ia,na,ibc
   integer                                            :: lind,lind_2            ! Identifying which BC to Impose
-  real(mytype)                                       :: bcimp           ! Imposed BC 
+  real(mytype)                                       :: bcimp,nearest_value ! Imposed BC
   integer                                            :: inxi,inxf
+  integer                                            :: jg,kg
   real(mytype)                                       :: ana_resi,ana_resf         ! Position of Boundary (Analytically)
-  real(mytype)                                       :: point(3),pointVelocity(3)
+  real(mytype)                                       :: point(3),pointVelocity(3),nearestVelocity(3)
   real(mytype)                                       :: xm,ym,zm
   !
   ! Initialise Arrays
   xa(:)=0.
   ya(:)=0.
+  nearestVelocity(:)=zero
   !
   ! Impose the Correct BC
   if (itype.eq.itype_ellip) then !variable surface values
    lind_2=-lind
   else
-   lind_2=lind  
+   lind_2=lind
   end if
-  
+
   do k=1,xsize(3)
    zm=real(xstart(3)+k-1,mytype)*dz
+   kg=xstart(3)+k-1
      do j=1,xsize(2)
       ym=real(xstart(2)+j-1,mytype)*dy
+      jg=xstart(2)+j-1
         if(nobjx(j,k).ne.0)then
            ia=0
-           do i=1,nobjx(j,k)          
+           do i=1,nobjx(j,k)
               !  1st Boundary - I DON'T UNDERSTAND THIS XM CONVERSION.
             ! write(*,*) "Nobjx = ", nobjx(j,k)
             ! xm=real(xstart(1)+i-2,mytype)*dx
             xm = xi(i,j,k)
               nxpif=npif
               ia=ia+1
+              ibc=ia
               if (ianal.eq.0) then
                  xa(ia)=xi(i,j,k)
                  ana_resi=xi(i,j,k)
@@ -459,6 +620,7 @@ subroutine cubsplx(u,lind)
               endif
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
+              nearestVelocity=pointVelocity
             !   write(*,*) "Called CPV at ", point, "returned", pointVelocity
             !   call EllipsoidalRadius(point, position, orientation, shape, dummy)
             !   dummy = maxval(abs((point(2:3)-position(2:3))))
@@ -474,6 +636,13 @@ subroutine cubsplx(u,lind)
                  inxi=0
                  ix=xi(i,j,k)/dx+1
                  ipoli=ix+1
+                 if(izap.eq.1)then
+                    nearest_value=u(ix-1,j,k)
+                    nearestVelocity=[ux1(ix-1,jg,kg), uy1(ix-1,jg,kg), uz1(ix-1,jg,kg)]
+                 else
+                    nearest_value=u(ix,j,k)
+                    nearestVelocity=[ux1(ix,jg,kg), uy1(ix,jg,kg), uz1(ix,jg,kg)]
+                 endif
                  if(nxipif(i,j,k).lt.npif)nxpif=nxipif(i,j,k)
                  do ipif=1,nxpif
                     ia=ia+1
@@ -490,32 +659,38 @@ subroutine cubsplx(u,lind)
                  ipoli=1
                  ix=xi(i,j,k)/dx
                  ipoli=ix+1
+                 nearest_value=bcimp
+                 nearestVelocity=pointVelocity
                  if(nxipif(i,j,k).lt.npif)nxpif=nxipif(i,j,k)
                  do ipif=1,nxpif
                     ia=ia+1
                     if(izap.eq.1)then ! Skip First Points
                        xa(ia)=(ix-1)*dx-ipif*dx
-                       ya(ia)=bcimp                   
+                       ya(ia)=bcimp
                     else              ! Don't Skip any Points
                        xa(ia)=(ix-1)*dx-(ipif-1)*dx
-                       ya(ia)=bcimp      
+                       ya(ia)=bcimp
                     endif
                  enddo
               endif
+              call ellip_slip_bcimp(point, pointVelocity, lind_2, nearest_value, nearestVelocity, bcimp)
+              ya(ibc)=bcimp
               !
               !  2nd Boundary
               nxpif=npif
               ia=ia+1
+              ibc=ia
               if (ianal.eq.0) then
                  xa(ia)=xf(i,j,k)
                  ana_resf=xf(i,j,k)
               else
                  call analitic_x(j,xf(i,j,k),ana_resf,k) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
-              endif              
+              endif
               xm = xf(i,j,k)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
+              nearestVelocity=pointVelocity
             !   write(*,*) "Called CPV at ", point, "returned", pointVelocity
             !   call EllipsoidalRadius(point, position, orientation, shape, dummy)
             !   dummy = maxval(abs(point-position))
@@ -531,6 +706,13 @@ subroutine cubsplx(u,lind)
                  inxf=0
                  ix=(xf(i,j,k)+dx)/dx+1
                  ipolf=ix-1
+                 if(izap.eq.1)then
+                    nearest_value=u(ix+1,j,k)
+                    nearestVelocity=[ux1(ix+1,jg,kg), uy1(ix+1,jg,kg), uz1(ix+1,jg,kg)]
+                 else
+                    nearest_value=u(ix,j,k)
+                    nearestVelocity=[ux1(ix,jg,kg), uy1(ix,jg,kg), uz1(ix,jg,kg)]
+                 endif
                  if(nxfpif(i,j,k).lt.npif)nxpif=nxfpif(i,j,k)
                  do ipif=1,nxpif
                     ia=ia+1
@@ -547,18 +729,22 @@ subroutine cubsplx(u,lind)
                  ipolf=nx
                  ix=(xf(i,j,k)+dx)/dx+1
                  ipolf=ix-1
+                 nearest_value=bcimp
+                 nearestVelocity=pointVelocity
                  if(nxfpif(i,j,k).lt.npif)nxpif=nxfpif(i,j,k)
                  do ipif=1,nxpif
                     ia=ia+1
                     if(izap.eq.1)then  ! Skip First Points
                        xa(ia)=(ix-1)*dx+ipif*dx
-                       ya(ia)=bcimp                                   
+                       ya(ia)=bcimp
                     else               ! Don't Skip any Points
                        xa(ia)=(ix-1)*dx+(ipif-1)*dx
-                       ya(ia)=bcimp                                   
+                       ya(ia)=bcimp
                     endif
                  enddo
               endif
+              call ellip_slip_bcimp(point, pointVelocity, lind_2, nearest_value, nearestVelocity, bcimp)
+              ya(ibc)=bcimp
               ! Special Case
               if (xi(i,j,k).eq.xf(i,j,k)) then
                  call decomp_2d_abort(1, "!! situation not supported by the IBM !!")
@@ -601,6 +787,7 @@ subroutine cubsply(u,lind)
   USE complex_geometry
   USE decomp_2d
   USE variables
+  USE var, ONLY: ux2, uy2, uz2
   USE ibm_param
   USE decomp_2d_mpi, only : decomp_2d_abort
   USE ellipsoid_utils, ONLY: CalculatePointVelocity_Multi, ibm_bcimp_calc
@@ -613,31 +800,35 @@ subroutine cubsply(u,lind)
   integer                                            :: jy              ! Counter for Skipping Points
   integer                                            :: jpif,jpol,nypif
   integer                                            :: jpoli,jpolf     ! Starting and Ending Points for the Reconstruction
-  real(mytype)                                       :: xpol,ypol,dypol ! Position and Value of the Reconstructed Solution 
-  real(mytype),dimension(10)                         :: xa,ya           ! Position and Value of the Input Data Function 
-  integer                                            :: ia,na           
+  real(mytype)                                       :: xpol,ypol,dypol ! Position and Value of the Reconstructed Solution
+  real(mytype),dimension(10)                         :: xa,ya           ! Position and Value of the Input Data Function
+  integer                                            :: ia,na,ibc
   integer                                            :: lind, lind_2            ! Identifying which BC to Impose
-  real(mytype)                                       :: bcimp           ! Imposed BC 
-  integer                                            :: inxi,inxf  
+  real(mytype)                                       :: bcimp,nearest_value ! Imposed BC
+  integer                                            :: inxi,inxf
+  integer                                            :: ig,kg
   real(mytype)                                       :: ana_resi,ana_resf
-  real(mytype)                                       :: point(3),pointVelocity(3)
+  real(mytype)                                       :: point(3),pointVelocity(3),nearestVelocity(3)
   real(mytype)                                       :: xm,ym,zm
   !
   ! Initialise Arrays
   xa(:)=0.
   ya(:)=0.
+  nearestVelocity(:)=zero
   !
   ! Impose the Correct BC
-  if (itype.eq.itype_ellip) then 
+  if (itype.eq.itype_ellip) then
    lind_2 = -lind
-  else 
+  else
    lind_2 = lind
   endif
   !
   do k=1,ysize(3)
    zm=real(ystart(3)+k-1,mytype)*dz
+   kg=ystart(3)+k-1
      do i=1,ysize(1)
       xm=real(ystart(1)+i-1,mytype)*dx
+      ig=ystart(1)+i-1
         if(nobjy(i,k).ne.0)then
            ia=0
            do j=1,nobjy(i,k)
@@ -645,16 +836,18 @@ subroutine cubsply(u,lind)
               !  1st Boundary
               nypif=npif
               ia=ia+1
+              ibc=ia
               if (ianal.eq.0) then
                  xa(ia)=yi(j,i,k)
                  ana_resi=yi(j,i,k)
               else
                  call analitic_y(i,yi(j,i,k),ana_resi,k) ! Calculate the position of BC analytically
                  xa(ia)=ana_resi
-              endif  
+              endif
               ym = yi(j,i,k)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
+              nearestVelocity=pointVelocity
 
               call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
@@ -666,6 +859,13 @@ subroutine cubsply(u,lind)
                  enddo
                  jy=jy-1
                  jpoli=jy+1
+                 if(izap.eq.1)then
+                    nearest_value=u(i,jy-1,k)
+                    nearestVelocity=[ux2(i,jy-1,k), uy2(i,jy-1,k), uz2(i,jy-1,k)]
+                 else
+                    nearest_value=u(i,jy,k)
+                    nearestVelocity=[ux2(i,jy,k), uy2(i,jy,k), uz2(i,jy,k)]
+                 endif
                  if(nyipif(j,i,k).lt.npif)nypif=nyipif(j,i,k)
                  do jpif=1,nypif
                     ia=ia+1
@@ -685,6 +885,8 @@ subroutine cubsply(u,lind)
                  enddo
                  jy=jy-1
                  jpoli=jy+1
+                 nearest_value=bcimp
+                 nearestVelocity=pointVelocity
                  if(nyipif(j,i,k).lt.npif)nypif=nyipif(j,i,k)
                  do jpif=1,nypif
                     ia=ia+1
@@ -697,29 +899,40 @@ subroutine cubsply(u,lind)
                     endif
                  enddo
               endif
+              call ellip_slip_bcimp(point, pointVelocity, lind_2, nearest_value, nearestVelocity, bcimp)
+              ya(ibc)=bcimp
               ! 2nd Boundary
               nypif=npif
               ia=ia+1
+              ibc=ia
               if (ianal.eq.0) then
                  xa(ia)=yf(j,i,k)
                  ana_resf=yf(j,i,k)
               else
                  call analitic_y(i,yf(j,i,k),ana_resf,k) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
-              endif  
+              endif
               ym = yf(j,i,k)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
+              nearestVelocity=pointVelocity
 
               call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
               ya(ia)=bcimp
               if(yf(j,i,k).lt.yly)then ! Immersed Object
                  jy=1
-                 do while(yp(jy).lt.yf(j,i,k))  
+                 do while(yp(jy).lt.yf(j,i,k))
                     jy=jy+1
                  enddo
                  jpolf=jy-1
+                 if(izap.eq.1)then
+                    nearest_value=u(i,jy+1,k)
+                    nearestVelocity=[ux2(i,jy+1,k), uy2(i,jy+1,k), uz2(i,jy+1,k)]
+                 else
+                    nearest_value=u(i,jy,k)
+                    nearestVelocity=[ux2(i,jy,k), uy2(i,jy,k), uz2(i,jy,k)]
+                 endif
                  if(nyfpif(j,i,k).lt.npif)nypif=nyfpif(j,i,k)
                  do jpif=1,nypif
                     ia=ia+1
@@ -734,10 +947,12 @@ subroutine cubsply(u,lind)
               else                   ! Boundary Coincides with Physical Boundary (Top)
                  jy=1
                  jpolf=ny
-                 do while(yp(jy).lt.yf(j,i,k))  
+                 do while(yp(jy).lt.yf(j,i,k))
                     jy=jy+1
                  enddo
                  jpolf=jy-1
+                 nearest_value=bcimp
+                 nearestVelocity=pointVelocity
                  if(nyfpif(j,i,k).lt.npif)nypif=nyfpif(j,i,k)
                  do jpif=1,nypif
                     ia=ia+1
@@ -750,6 +965,8 @@ subroutine cubsply(u,lind)
                     endif
                  enddo
               endif
+              call ellip_slip_bcimp(point, pointVelocity, lind_2, nearest_value, nearestVelocity, bcimp)
+              ya(ibc)=bcimp
               ! Special Case
               if (yi(j,i,k).eq.yf(j,i,k)) then
                  call decomp_2d_abort(1, "!! situation not supported by the IBM !!")
@@ -788,6 +1005,7 @@ subroutine cubsplz(u,lind)
   USE complex_geometry
   USE decomp_2d
   USE variables
+  USE var, ONLY: ux3, uy3, uz3
   USE ibm_param
   USE decomp_2d_mpi, only : decomp_2d_abort
   USE ellipsoid_utils, ONLY: CalculatePointVelocity_Multi, ibm_bcimp_calc
@@ -801,48 +1019,54 @@ subroutine cubsplz(u,lind)
   integer                                            :: kpif,kpol,nzpif
   integer                                            :: kpoli,kpolf     != positions Initiales et Finales du POLynôme considéré
   real(mytype)                                       :: xpol,ypol,dypol !|variables concernant les polynômes
-  real(mytype),dimension(10)                         :: xa,ya           !|de Lagrange. A mettre imérativement en 
-  integer                                            :: ia,na           !|double précision
+  real(mytype),dimension(10)                         :: xa,ya           !|de Lagrange. A mettre imérativement en
+  integer                                            :: ia,na,ibc      !|double précision
   integer                                            :: lind, lind_2    ! Identifying which BC to Impose
-  real(mytype)                                       :: bcimp           ! Imposed BC 
-  integer                                            :: inxi,inxf  
+  real(mytype)                                       :: bcimp,nearest_value ! Imposed BC
+  integer                                            :: inxi,inxf
+  integer                                            :: ig,jg
   real(mytype)                                       :: ana_resi,ana_resf
-  real(mytype)                                       :: point(3),pointVelocity(3)
+  real(mytype)                                       :: point(3),pointVelocity(3),nearestVelocity(3)
   real(mytype)                                       :: xm,ym,zm
 
   !
   ! Initialise Arrays
   xa(:)=zero
   ya(:)=zero
+  nearestVelocity(:)=zero
   !
   ! Impose the Correct BC
   if (itype.eq.itype_ellip) then
    lind_2 = -lind
-  else 
+  else
    lind_2 = lind
-  end if  
+  end if
   !
   do j=1,zsize(2)
    ym=real(zstart(2)+j-1,mytype)*dy
+   jg=zstart(2)+j-1
      do i=1,zsize(1)
       xm=real(zstart(1)+i-1,mytype)*dx
+      ig=zstart(1)+i-1
         if(nobjz(i,j).ne.0)then
            ia=0
-           do k=1,nobjz(i,j)          
+           do k=1,nobjz(i,j)
               !  1st Boundary
             ! zm=real(zstart(3)+k-2,mytype)*dz
               nzpif=npif
               ia=ia+1
+              ibc=ia
               if (ianal.eq.0) then
                  xa(ia)=zi(k,i,j)
                  ana_resi=zi(k,i,j)
               else
 !                 call analitic_z(i,zi(k,i,j),ana_resi,j) ! Calculate the position of BC analytically
                  xa(ia)=ana_resi
-              endif  
+              endif
               zm = zi(k,i,j)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
+              nearestVelocity=pointVelocity
 
               call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
@@ -851,6 +1075,13 @@ subroutine cubsplz(u,lind)
                  inxi=0
                  kz=zi(k,i,j)/dz+1
                  kpoli=kz+1
+                 if(izap.eq.1)then
+                    nearest_value=u(i,j,kz-1)
+                    nearestVelocity=[ux3(i,j,kz-1), uy3(i,j,kz-1), uz3(i,j,kz-1)]
+                 else
+                    nearest_value=u(i,j,kz)
+                    nearestVelocity=[ux3(i,j,kz), uy3(i,j,kz), uz3(i,j,kz)]
+                 endif
                  if(nzipif(k,i,j).lt.npif)nzpif=nzipif(k,i,j)
                  do kpif=1,nzpif
                     ia=ia+1
@@ -862,10 +1093,12 @@ subroutine cubsplz(u,lind)
                        ya(ia)=u(i,j,kz-kpif+1)
                     endif
                  enddo
-              else                   ! Boundary Coincides with Physical Boundary (Front) 
+              else                   ! Boundary Coincides with Physical Boundary (Front)
                  inxi=1
                  kz=zi(k,i,j)/dz
                  kpoli=1
+                 nearest_value=bcimp
+                 nearestVelocity=pointVelocity
                  if(nzipif(k,i,j).lt.npif)nzpif=nzipif(k,i,j)
                  do kpif=1,nzpif
                     ia=ia+1
@@ -878,9 +1111,12 @@ subroutine cubsplz(u,lind)
                     endif
                  enddo
               endif
+              call ellip_slip_bcimp(point, pointVelocity, lind_2, nearest_value, nearestVelocity, bcimp)
+              ya(ibc)=bcimp
               !  2nd Boundary
               nzpif=npif
               ia=ia+1
+              ibc=ia
               if (ianal.eq.0) then
                  xa(ia)=zf(k,i,j)
                  ana_resf=zf(k,i,j)
@@ -888,9 +1124,10 @@ subroutine cubsplz(u,lind)
                  !call analitic_z(i,zf(k,i,j),ana_resf,j) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
               endif
-              zm = zi(k,i,j)
+              zm = zf(k,i,j)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
+              nearestVelocity=pointVelocity
 
               call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
@@ -899,6 +1136,13 @@ subroutine cubsplz(u,lind)
                  inxf=0
                  kz=(zf(k,i,j)+dz)/dz+1
                  kpolf=kz-1
+                 if(izap.eq.1)then
+                    nearest_value=u(i,j,kz+1)
+                    nearestVelocity=[ux3(i,j,kz+1), uy3(i,j,kz+1), uz3(i,j,kz+1)]
+                 else
+                    nearest_value=u(i,j,kz)
+                    nearestVelocity=[ux3(i,j,kz), uy3(i,j,kz), uz3(i,j,kz)]
+                 endif
                  if(nzfpif(k,i,j).lt.npif)nzpif=nzfpif(k,i,j)
                  do kpif=1,nzpif
                     ia=ia+1
@@ -914,6 +1158,8 @@ subroutine cubsplz(u,lind)
                  inxf=1
                  kz=(zf(k,i,j)+dz)/dz+1
                  kpolf=nz
+                 nearest_value=bcimp
+                 nearestVelocity=pointVelocity
                  if(nzfpif(k,i,j).lt.npif)nzpif=nzfpif(k,i,j)
                  do kpif=1,nzpif
                     ia=ia+1
@@ -926,6 +1172,8 @@ subroutine cubsplz(u,lind)
                     endif
                  enddo
               endif
+              call ellip_slip_bcimp(point, pointVelocity, lind_2, nearest_value, nearestVelocity, bcimp)
+              ya(ibc)=bcimp
               ! Special Case
               if (zi(k,i,j).eq.zf(k,i,j)) then
                  !u(i,j,kpol)=bcimp
@@ -1065,7 +1313,7 @@ subroutine ana_y_cyl(i,y_pos,ana_res)
   implicit none
   !
   integer                                            :: i
-  real(mytype)                                       :: y_pos,ana_res 
+  real(mytype)                                       :: y_pos,ana_res
   real(mytype)                                       :: cexx,ceyy
   !
   if (t.ne.0.) then
@@ -1079,7 +1327,7 @@ subroutine ana_y_cyl(i,y_pos,ana_res)
       ana_res=ceyy + sqrt(ra(1)**2.0-((i+ystart(1)-1-1)*dx-cexx)**2.0)
   else
       ana_res=ceyy - sqrt(ra(1)**2.0-((i+ystart(1)-1-1)*dx-cexx)**2.0)
-  endif     
+  endif
   !
   return
 end subroutine ana_y_cyl
@@ -1096,7 +1344,7 @@ subroutine ana_x_cyl(j,x_pos,ana_res)
   implicit none
   !
   integer                                            :: j
-  real(mytype)                                       :: x_pos,ana_res 
+  real(mytype)                                       :: x_pos,ana_res
   real(mytype)                                       :: cexx,ceyy
   !
   if (t.ne.0.) then
@@ -1110,7 +1358,7 @@ subroutine ana_x_cyl(j,x_pos,ana_res)
       ana_res = cexx + sqrt(ra(1)**2.0-(yp(j+xstart(2)-1)-ceyy)**2.0)
   else
       ana_res = cexx - sqrt(ra(1)**2.0-(yp(j+xstart(2)-1)-ceyy)**2.0)
-  endif     
+  endif
   !
   return
 end subroutine ana_x_cyl
@@ -1124,7 +1372,7 @@ SUBROUTINE analitic_x(j,x_pos,ana_res,k)
   IMPLICIT NONE
 
   integer                                            :: j,k
-  real(mytype)                                       :: x_pos,ana_res 
+  real(mytype)                                       :: x_pos,ana_res
 
   IF (itype.EQ.itype_cyl) THEN
 
@@ -1144,7 +1392,7 @@ SUBROUTINE analitic_y(i,y_pos,ana_res,k)
   IMPLICIT NONE
 
   integer                                            :: i,k
-  real(mytype)                                       :: y_pos,ana_res 
+  real(mytype)                                       :: y_pos,ana_res
 
   IF (itype.EQ.itype_cyl) THEN
 
@@ -1155,6 +1403,6 @@ SUBROUTINE analitic_y(i,y_pos,ana_res,k)
 END SUBROUTINE analitic_y
 !*******************************************************************
 !*******************************************************************
-  
-  
+
+
 end module ibm

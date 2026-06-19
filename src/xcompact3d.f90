@@ -14,17 +14,19 @@ program xcompact3d
   use tools, only : restart, simu_stats, apply_spatial_filter, read_inflow
   use turbine, only : compute_turbines
   use ibm_param
-  use ibm, only : body
+  use ibm, only : body, reset_ellip_slip_bcimp_stats, report_ellip_slip_bcimp_stats
   use genepsi, only : genepsi3d
   use mhd,    only : Bm,mhd_equation,test_magnetic, &
                      solve_poisson_mhd
-  use param, only : mhd_active
+  use param, only : mhd_active, xnu, zero
   use particle, only : intt_particles
 
-  use ellip, only : update_ellipsoid, update_ellipsoid_cv, set_ellipsoid_cv_bounds
+  use ellip, only : update_ellipsoid, update_ellipsoid_cv, set_ellipsoid_cv_bounds, &
+       ellipsoid_bc_diagnostic, ellipsoid_pressure_correction_diagnostic, &
+       ellipsoid_projection_slip_correction
   use cyl,   only : update_cylinder_state
   implicit none
-  integer :: iounit
+  integer :: iounit, islip_projection
 
 
 
@@ -78,7 +80,17 @@ program xcompact3d
              call body(ux1,uy1,uz1,ep1)
           endif
         endif
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "start_substep")
+        endif
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call reset_ellip_slip_bcimp_stats()
+        endif
         call calculate_transeq_rhs(drho1,dux1,duy1,duz1,dphi1,rho1,ux1,uy1,uz1,ep1,phi1,divu3)
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call report_ellip_slip_bcimp_stats("transeq_rhs")
+           call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "after_transeq_rhs")
+        endif
 
 #ifdef DEBG
         call check_transients()
@@ -90,11 +102,39 @@ program xcompact3d
         endif
 
         call int_time(rho1,ux1,uy1,uz1,phi1,drho1,dux1,duy1,duz1,dphi1)
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "after_int_time")
+        endif
         call pre_correc(ux1,uy1,uz1,ep1)
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "after_pre_correc")
+        endif
 
         call calc_divu_constraint(divu3,rho1,phi1)
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call reset_ellip_slip_bcimp_stats()
+        endif
         call solve_poisson(div_visu_var,pp3,px1,py1,pz1,rho1,ux1,uy1,uz1,ep1,drho1,divu3)
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call report_ellip_slip_bcimp_stats("solve_poisson")
+           call ellipsoid_pressure_correction_diagnostic(ux1, uy1, uz1, px1, py1, pz1, "before_cor_vel")
+           call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "before_cor_vel")
+        endif
         call cor_vel(ux1,uy1,uz1,px1,py1,pz1)
+        if (itype.eq.itype_ellip .and. xnu.eq.zero .and. ellipsoid_projection_slip_fix.gt.0) then
+           do islip_projection = 1, ellipsoid_projection_slip_fix
+              call ellipsoid_projection_slip_correction(ux1, uy1, uz1, "iter_slip")
+              call calc_divu_constraint(divu3,rho1,phi1)
+              call solve_poisson(div_visu_var,pp3,px1,py1,pz1,rho1,ux1,uy1,uz1,ep1,drho1,divu3)
+              call cor_vel(ux1,uy1,uz1,px1,py1,pz1)
+              if (mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast) then
+                 call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "after_slip_reproject")
+              endif
+           enddo
+        endif
+        if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "after_cor_vel")
+        endif
 
         if(mhd_active .and. mhd_equation == 'induction') then
           call solve_poisson_mhd()
@@ -248,6 +288,10 @@ subroutine init_xcompact3d()
   else if (iibm.eq.1) then
      call epsi_init(ep1)
      call body(ux1,uy1,uz1,ep1)
+  endif
+
+  if (itype.eq.itype_ellip .and. iforces.eq.1) then
+     call set_ellipsoid_cv_bounds()
   endif
 
   if (iforces.eq.1) then
@@ -436,4 +480,3 @@ subroutine check_transients()
   if (nrank == 0) write(*,*)'## MAX duz1 ', dep
   
 end subroutine check_transients
-
