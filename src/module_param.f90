@@ -670,10 +670,11 @@ module ibm_param
   real(mytype) :: cex,cey,cez,shx,shy,shz,oriw,orii,orij,orik,lvx,lvy,lvz,avx,avy,avz,rai,rao,ubcx,ubcy,ubcz,rads,c_air,cvl_scalar,grav_y,grav_x,grav_z
   real(mytype) :: position(10,3),orientation(10,4),linearVelocity(10,3),angularVelocity(10,4),linearAcceleration(3),linearForce(10,3),torque(10,3),shape(10,3)
   real(mytype) :: position_1(3),linearVelocity_1(3),orientation_1(4),angularVelocity_1(4),ra(10),rho_s(10),ellip_m(10),ellip_m_added(10,3),inertia(10,3,3),inertia_rot_added(10,3)
-  real(mytype) :: chord,thickness,omega, tconv2_sign, shear_velocity
+  real(mytype) :: chord,thickness,omega, tconv2_sign, shear_velocity, ellipsoid_lagrange_projection_relax
+  real(mytype) :: ellipsoid_schur_projection_relax, ellipsoid_schur_projection_tol
   real(mytype) :: ce(30),sh(30),ori(40), lv(30), av(30)
   integer :: inana ! Analytical BC as Input
-  integer :: imove, nozdrift, force_csv, bodies_fixed, cube_flag, torques_flag,orientations_free, shear_flow_ybc, shear_flow_zbc,torq_debug, torq_flip, ztorq_only, nbody, inviscid_output, div_visu_flag, ellipsoid_init_potential, ellipsoid_projection_slip_fix
+  integer :: imove, nozdrift, force_csv, bodies_fixed, cube_flag, torques_flag,orientations_free, shear_flow_ybc, shear_flow_zbc,torq_debug, torq_flip, ztorq_only, nbody, inviscid_output, div_visu_flag, ellipsoid_init_potential, ellipsoid_projection_slip_fix, ellipsoid_projection_flux_fix, ellipsoid_pressure_geometry_diag, ellipsoid_lagrange_projection_steps, ellipsoid_schur_projection_iters
 end module ibm_param
 !############################################################################
 !############################################################################

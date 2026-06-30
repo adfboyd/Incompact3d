@@ -11,9 +11,11 @@ module navier
   implicit none
 
   private
+  logical, save :: suppress_divergence_output = .false.
 
   public :: solve_poisson, divergence,divergence2, calc_divu_constraint
   public :: pre_correc, cor_vel
+  public :: ellipsoid_schur_projection
   public :: lmn_t_to_rho_trans, momentum_to_velocity, velocity_to_momentum
   public :: gradp, tbl_flrt
 
@@ -24,7 +26,8 @@ contains
   !! DESCRIPTION: Takes the intermediate momentum field as input,
   !!              computes div and solves pressure-Poisson equation.
   !############################################################################
-  SUBROUTINE solve_poisson(div_visu_var, pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, drho1, divu3)
+  SUBROUTINE solve_poisson(div_visu_var, pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, drho1, divu3, &
+       save_bc_grad, quiet)
 
     USE decomp_2d_poisson, ONLY : poisson
     USE var, ONLY : nzmsize
@@ -41,6 +44,8 @@ contains
     REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3), nrhotime), INTENT(IN) :: rho1
     REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3), ntime), INTENT(IN) :: drho1
     REAL(mytype), DIMENSION(zsize(1), zsize(2), zsize(3)), INTENT(IN) :: divu3
+    LOGICAL, INTENT(IN), OPTIONAL :: save_bc_grad
+    LOGICAL, INTENT(IN), OPTIONAL :: quiet
 
     !! Outputs
     REAL(mytype), DIMENSION(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize, npress) :: pp3, div_visu_var
@@ -49,6 +54,7 @@ contains
     !! Locals
     INTEGER :: nlock, poissiter
     LOGICAL :: converged
+    LOGICAL :: save_bc_grad_local, quiet_local, old_suppress_divergence_output
     REAL(mytype) :: atol, rtol, rho0, divup3norm
 #ifdef DEBG
     real(mytype) :: dep
@@ -58,6 +64,10 @@ contains
     nlock = 1 !! Corresponds to computing div(u*)
     converged = .FALSE.
     poissiter = 0
+    save_bc_grad_local = .TRUE.
+    IF (PRESENT(save_bc_grad)) save_bc_grad_local = save_bc_grad
+    quiet_local = .FALSE.
+    IF (PRESENT(quiet)) quiet_local = quiet
     call calc_rho0(rho1(:,:,:,1), rho0)
 #ifdef DOUBLE_PREC
     atol = 1.0e-14_mytype !! Absolute tolerance for Poisson solver
@@ -73,7 +83,10 @@ contains
        CALL momentum_to_velocity(rho1, ux1, uy1, uz1)
     ENDIF
 
+    old_suppress_divergence_output = suppress_divergence_output
+    if (quiet_local) suppress_divergence_output = .true.
     call divergence(div_visu_var(:,:,:,1),pp3(:,:,:,1),rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
+    suppress_divergence_output = old_suppress_divergence_output
     IF (ilmn.AND.ivarcoeff) THEN
        dv3(:,:,:) = pp3(:,:,:,1)
     ENDIF
@@ -104,7 +117,7 @@ contains
 #endif
 
           !! Need to update pressure gradient here for varcoeff
-          CALL gradp(px1,py1,pz1,pp3(:,:,:,1))
+          CALL gradp(px1,py1,pz1,pp3(:,:,:,1),save_bc_grad_local)
 #ifdef DEBG
           dep=maxval(abs(pp3(:,:,:,1)))
           call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
@@ -247,6 +260,557 @@ contains
 
     return
   end subroutine cor_vel
+
+  !############################################################################
+  ! Matrix-free Schur complement correction for inviscid immersed ellipsoids.
+  !
+  ! This solves, approximately, for a divergence-free velocity correction whose
+  ! normal component reduces the immersed no-penetration residual after the
+  ! usual pressure projection:
+  !
+  !     C P E^T lambda = U_body.n - C u
+  !
+  ! C samples normal velocity at immersed boundary samples, E^T spreads scalar
+  ! boundary multipliers back to the nearest velocity cells along the sample
+  ! normals, and P is the standard pressure projection.
+  !############################################################################
+  subroutine ellipsoid_schur_projection(div_visu_var, pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, drho1, divu3)
+
+    use param, only : ntime, nrhotime, npress, zero, one, dx, dy, dz, xlx, yly, zlz, izap, &
+         xnu, ifirst, ilast, itime, itr, istret, sync_vel_needed
+    use variables, only : yp, ilist
+    use complex_geometry, only : nobjx, nobjy, nobjz, xi, xf, yi, yf, zi, zf
+    use ibm_param, only : ellipsoid_schur_projection_iters, ellipsoid_schur_projection_relax, &
+         ellipsoid_schur_projection_tol
+    use ellipsoid_utils, only : CalculatePointVelocity_Multi, EllipsoidNormal_Multi
+    use var, only : t, nzmsize
+    use MPI
+
+    implicit none
+
+    real(mytype), dimension(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize, npress), intent(inout) :: pp3
+    real(mytype), dimension(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize, npress), intent(inout) :: div_visu_var
+    real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(inout) :: ux1, uy1, uz1
+    real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(inout) :: px1, py1, pz1
+    real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(in) :: ep1
+    real(mytype), dimension(xsize(1), xsize(2), xsize(3), nrhotime), intent(in) :: rho1
+    real(mytype), dimension(xsize(1), xsize(2), xsize(3), ntime), intent(in) :: drho1
+    real(mytype), dimension(zsize(1), zsize(2), zsize(3)), intent(in) :: divu3
+
+    integer, allocatable :: ix_sx(:), jy_sx(:), kz_sx(:)
+    integer, allocatable :: ix_sy(:), jy_sy(:), kz_sy(:)
+    integer, allocatable :: ix_sz(:), jy_sz(:), kz_sz(:)
+    real(mytype), allocatable :: nx_sx(:), ny_sx(:), nz_sx(:), body_sx(:), weight_sx(:)
+    real(mytype), allocatable :: nx_sy(:), ny_sy(:), nz_sy(:), body_sy(:), weight_sy(:)
+    real(mytype), allocatable :: nx_sz(:), ny_sz(:), nz_sz(:), body_sz(:), weight_sz(:)
+    real(mytype), allocatable :: sx_b(:), sy_b(:), sz_b(:)
+    real(mytype), allocatable :: sx_r(:), sy_r(:), sz_r(:)
+    real(mytype), allocatable :: sx_p(:), sy_p(:), sz_p(:)
+    real(mytype), allocatable :: sx_ap(:), sy_ap(:), sz_ap(:)
+    real(mytype), allocatable :: sx_lambda(:), sy_lambda(:), sz_lambda(:)
+    real(mytype), allocatable :: wx(:,:,:), wy(:,:,:), wz(:,:,:)
+    integer :: capx, capy, capz, nsx, nsy, nsz, sample_count_local, sample_count_global
+    integer :: iter, iter_done, code, iunit
+    logical :: file_exists
+    real(mytype) :: rr, rr_new, pap, alpha, beta, initial_rms, final_rms, correction_rms
+    real(mytype) :: relax, tol, denom
+
+    if (ellipsoid_schur_projection_iters.le.0) return
+    if (xnu.ne.zero) return
+
+    relax = ellipsoid_schur_projection_relax
+    tol = ellipsoid_schur_projection_tol
+    if (relax.le.zero) return
+
+    capx = max(1, two_int_sum(nobjx))
+    capy = max(1, two_int_sum(nobjy))
+    capz = max(1, two_int_sum(nobjz))
+
+    call allocate_samples(capx, ix_sx, jy_sx, kz_sx, nx_sx, ny_sx, nz_sx, body_sx, weight_sx)
+    call allocate_samples(capy, ix_sy, jy_sy, kz_sy, nx_sy, ny_sy, nz_sy, body_sy, weight_sy)
+    call allocate_samples(capz, ix_sz, jy_sz, kz_sz, nx_sz, ny_sz, nz_sz, body_sz, weight_sz)
+
+    nsx = 0
+    nsy = 0
+    nsz = 0
+    call build_schur_samples()
+
+    sample_count_local = nsx + nsy + nsz
+    sample_count_global = sample_count_local
+    call MPI_Allreduce(MPI_IN_PLACE, sample_count_global, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    if (sample_count_global.le.0) return
+
+    call allocate_vectors(max(1, nsx), sx_b, sx_r, sx_p, sx_ap, sx_lambda)
+    call allocate_vectors(max(1, nsy), sy_b, sy_r, sy_p, sy_ap, sy_lambda)
+    call allocate_vectors(max(1, nsz), sz_b, sz_r, sz_p, sz_ap, sz_lambda)
+
+    sx_b = zero
+    sy_b = zero
+    sz_b = zero
+    call sample_field(ux1, uy1, uz1, sx_ap, sy_ap, sz_ap)
+    if (nsx.gt.0) sx_b(1:nsx) = body_sx(1:nsx) - sx_ap(1:nsx)
+    if (nsy.gt.0) sy_b(1:nsy) = body_sy(1:nsy) - sy_ap(1:nsy)
+    if (nsz.gt.0) sz_b(1:nsz) = body_sz(1:nsz) - sz_ap(1:nsz)
+
+    sx_r = sx_b
+    sy_r = sy_b
+    sz_r = sz_b
+    sx_p = sx_r
+    sy_p = sy_r
+    sz_p = sz_r
+    sx_lambda = zero
+    sy_lambda = zero
+    sz_lambda = zero
+
+    rr = schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r)
+    initial_rms = sqrt(rr / real(sample_count_global, mytype))
+    final_rms = initial_rms
+    iter_done = 0
+
+    if (initial_rms.gt.zero) then
+       do iter = 1, ellipsoid_schur_projection_iters
+          call schur_matvec(sx_p, sy_p, sz_p, sx_ap, sy_ap, sz_ap)
+          pap = schur_dot(sx_p, sy_p, sz_p, sx_ap, sy_ap, sz_ap)
+          if (pap.le.epsilon(one)) exit
+
+          alpha = rr / pap
+          if (nsx.gt.0) sx_lambda(1:nsx) = sx_lambda(1:nsx) + alpha * sx_p(1:nsx)
+          if (nsy.gt.0) sy_lambda(1:nsy) = sy_lambda(1:nsy) + alpha * sy_p(1:nsy)
+          if (nsz.gt.0) sz_lambda(1:nsz) = sz_lambda(1:nsz) + alpha * sz_p(1:nsz)
+
+          if (nsx.gt.0) sx_r(1:nsx) = sx_r(1:nsx) - alpha * sx_ap(1:nsx)
+          if (nsy.gt.0) sy_r(1:nsy) = sy_r(1:nsy) - alpha * sy_ap(1:nsy)
+          if (nsz.gt.0) sz_r(1:nsz) = sz_r(1:nsz) - alpha * sz_ap(1:nsz)
+
+          rr_new = schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r)
+          final_rms = sqrt(rr_new / real(sample_count_global, mytype))
+          iter_done = iter
+          if (final_rms.le.tol * max(initial_rms, epsilon(one))) exit
+
+          denom = max(rr, epsilon(one))
+          beta = rr_new / denom
+          if (nsx.gt.0) sx_p(1:nsx) = sx_r(1:nsx) + beta * sx_p(1:nsx)
+          if (nsy.gt.0) sy_p(1:nsy) = sy_r(1:nsy) + beta * sy_p(1:nsy)
+          if (nsz.gt.0) sz_p(1:nsz) = sz_r(1:nsz) + beta * sz_p(1:nsz)
+          rr = rr_new
+       enddo
+    endif
+
+    allocate(wx(xsize(1),xsize(2),xsize(3)))
+    allocate(wy(xsize(1),xsize(2),xsize(3)))
+    allocate(wz(xsize(1),xsize(2),xsize(3)))
+    call spread_vector(sx_lambda, sy_lambda, sz_lambda, wx, wy, wz)
+    call project_correction(wx, wy, wz)
+    call sample_field(wx, wy, wz, sx_ap, sy_ap, sz_ap)
+
+    if (nsx.gt.0) sx_r(1:nsx) = sx_b(1:nsx) - relax * sx_ap(1:nsx)
+    if (nsy.gt.0) sy_r(1:nsy) = sy_b(1:nsy) - relax * sy_ap(1:nsy)
+    if (nsz.gt.0) sz_r(1:nsz) = sz_b(1:nsz) - relax * sz_ap(1:nsz)
+    final_rms = sqrt(schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r) / real(sample_count_global, mytype))
+    correction_rms = sqrt(schur_dot(sx_ap, sy_ap, sz_ap, sx_ap, sy_ap, sz_ap) / &
+         real(sample_count_global, mytype))
+
+    ux1(:,:,:) = ux1(:,:,:) + relax * wx(:,:,:)
+    uy1(:,:,:) = uy1(:,:,:) + relax * wy(:,:,:)
+    uz1(:,:,:) = uz1(:,:,:) + relax * wz(:,:,:)
+    sync_vel_needed = .true.
+
+    deallocate(wx, wy, wz)
+
+    if (nrank.eq.0 .and. (mod(itime,ilist).eq.0 .or. itime.eq.ifirst .or. itime.eq.ilast)) then
+       write(*,*) "Ellipsoid Schur projection: samples=", sample_count_global, &
+            " iterations=", iter_done, " residual rms initial/final=", initial_rms, final_rms, &
+            " correction rms=", correction_rms, " relax=", relax
+
+       inquire(file="ellipsoid_schur_projection.dat", exist=file_exists)
+       open(newunit=iunit, file="ellipsoid_schur_projection.dat", status="unknown", position="append")
+       if (.not. file_exists) then
+          write(iunit,*) "# t itime itr samples iterations initial_rms final_rms correction_rms relax tol xnu"
+       endif
+       write(iunit,*) t, itime, itr, sample_count_global, iter_done, initial_rms, final_rms, &
+            correction_rms, relax, tol, xnu
+       close(iunit)
+    endif
+
+  contains
+
+    integer function two_int_sum(values)
+      integer, intent(in), dimension(:,:) :: values
+      two_int_sum = 2 * sum(values) + 1
+    end function two_int_sum
+
+    subroutine allocate_samples(capacity, ix, jy, kz, nxn, nyn, nzn, body, weight)
+      integer, intent(in) :: capacity
+      integer, allocatable, intent(out) :: ix(:), jy(:), kz(:)
+      real(mytype), allocatable, intent(out) :: nxn(:), nyn(:), nzn(:), body(:), weight(:)
+
+      allocate(ix(capacity), jy(capacity), kz(capacity))
+      allocate(nxn(capacity), nyn(capacity), nzn(capacity), body(capacity), weight(capacity))
+      ix = 0
+      jy = 0
+      kz = 0
+      nxn = zero
+      nyn = zero
+      nzn = zero
+      body = zero
+      weight = one
+    end subroutine allocate_samples
+
+    subroutine allocate_vectors(n, b, r, p, ap, lambda)
+      integer, intent(in) :: n
+      real(mytype), allocatable, intent(out) :: b(:), r(:), p(:), ap(:), lambda(:)
+
+      allocate(b(n), r(n), p(n), ap(n), lambda(n))
+      b = zero
+      r = zero
+      p = zero
+      ap = zero
+      lambda = zero
+    end subroutine allocate_vectors
+
+    subroutine build_schur_samples()
+      integer :: i, j, k, iobj, ix, jy, kz
+      real(mytype) :: point(3)
+
+      do k = 1, xsize(3)
+         do j = 1, xsize(2)
+            do iobj = 1, nobjx(j,k)
+               if (xi(iobj,j,k).gt.zero) then
+                  ix = int(xi(iobj,j,k) / dx) + 1
+                  if (izap.eq.1) ix = ix - 1
+                  if (ix.ge.1 .and. ix.le.xsize(1)) then
+                     point = [xi(iobj,j,k), y_x_coord(j), z_x_coord(k)]
+                     call add_sample_x(point, ix, j, k, dy*dz)
+                  endif
+               endif
+
+               if (xf(iobj,j,k).lt.xlx) then
+                  ix = int((xf(iobj,j,k) + dx) / dx) + 1
+                  if (izap.eq.1) ix = ix + 1
+                  if (ix.ge.1 .and. ix.le.xsize(1)) then
+                     point = [xf(iobj,j,k), y_x_coord(j), z_x_coord(k)]
+                     call add_sample_x(point, ix, j, k, dy*dz)
+                  endif
+               endif
+            enddo
+         enddo
+      enddo
+
+      do k = 1, ysize(3)
+         do i = 1, ysize(1)
+            do j = 1, nobjy(i,k)
+               if (yi(j,i,k).gt.zero) then
+                  jy = lower_velocity_y_index(yi(j,i,k))
+                  if (izap.eq.1) jy = jy - 1
+                  if (jy.ge.1 .and. jy.le.ysize(2)) then
+                     point = [x_y_coord(i), yi(j,i,k), z_y_coord(k)]
+                     call add_sample_y(point, i, jy, k, dx*dz)
+                  endif
+               endif
+
+               if (yf(j,i,k).lt.yly) then
+                  jy = upper_velocity_y_index(yf(j,i,k))
+                  if (izap.eq.1) jy = jy + 1
+                  if (jy.ge.1 .and. jy.le.ysize(2)) then
+                     point = [x_y_coord(i), yf(j,i,k), z_y_coord(k)]
+                     call add_sample_y(point, i, jy, k, dx*dz)
+                  endif
+               endif
+            enddo
+         enddo
+      enddo
+
+      do j = 1, zsize(2)
+         do i = 1, zsize(1)
+            do k = 1, nobjz(i,j)
+               if (zi(k,i,j).gt.zero) then
+                  kz = int(zi(k,i,j) / dz) + 1
+                  if (izap.eq.1) kz = kz - 1
+                  if (kz.ge.1 .and. kz.le.zsize(3)) then
+                     point = [x_z_coord(i), y_z_coord(j), zi(k,i,j)]
+                     call add_sample_z(point, i, j, kz, dx*dy)
+                  endif
+               endif
+
+               if (zf(k,i,j).lt.zlz) then
+                  kz = int((zf(k,i,j) + dz) / dz) + 1
+                  if (izap.eq.1) kz = kz + 1
+                  if (kz.ge.1 .and. kz.le.zsize(3)) then
+                     point = [x_z_coord(i), y_z_coord(j), zf(k,i,j)]
+                     call add_sample_z(point, i, j, kz, dx*dy)
+                  endif
+               endif
+            enddo
+         enddo
+      enddo
+    end subroutine build_schur_samples
+
+    subroutine add_sample_x(point, ix, jy, kz, projected_area)
+      real(mytype), intent(in) :: point(3), projected_area
+      integer, intent(in) :: ix, jy, kz
+      real(mytype) :: normal(3), body_velocity(3), normal_axis_abs
+
+      call CalculatePointVelocity_Multi(point, body_velocity)
+      call EllipsoidNormal_Multi(point, normal)
+      if (dominant_normal_axis(normal).ne.1) return
+      normal_axis_abs = abs(normal(1))
+      if (normal_axis_abs.le.zero) return
+      nsx = nsx + 1
+      ix_sx(nsx) = ix
+      jy_sx(nsx) = jy
+      kz_sx(nsx) = kz
+      nx_sx(nsx) = normal(1)
+      ny_sx(nsx) = normal(2)
+      nz_sx(nsx) = normal(3)
+      body_sx(nsx) = sum(body_velocity * normal)
+      weight_sx(nsx) = projected_area / normal_axis_abs
+    end subroutine add_sample_x
+
+    subroutine add_sample_y(point, ix, jy, kz, projected_area)
+      real(mytype), intent(in) :: point(3), projected_area
+      integer, intent(in) :: ix, jy, kz
+      real(mytype) :: normal(3), body_velocity(3), normal_axis_abs
+
+      call CalculatePointVelocity_Multi(point, body_velocity)
+      call EllipsoidNormal_Multi(point, normal)
+      if (dominant_normal_axis(normal).ne.2) return
+      normal_axis_abs = abs(normal(2))
+      if (normal_axis_abs.le.zero) return
+      nsy = nsy + 1
+      ix_sy(nsy) = ix
+      jy_sy(nsy) = jy
+      kz_sy(nsy) = kz
+      nx_sy(nsy) = normal(1)
+      ny_sy(nsy) = normal(2)
+      nz_sy(nsy) = normal(3)
+      body_sy(nsy) = sum(body_velocity * normal)
+      weight_sy(nsy) = projected_area / normal_axis_abs
+    end subroutine add_sample_y
+
+    subroutine add_sample_z(point, ix, jy, kz, projected_area)
+      real(mytype), intent(in) :: point(3), projected_area
+      integer, intent(in) :: ix, jy, kz
+      real(mytype) :: normal(3), body_velocity(3), normal_axis_abs
+
+      call CalculatePointVelocity_Multi(point, body_velocity)
+      call EllipsoidNormal_Multi(point, normal)
+      if (dominant_normal_axis(normal).ne.3) return
+      normal_axis_abs = abs(normal(3))
+      if (normal_axis_abs.le.zero) return
+      nsz = nsz + 1
+      ix_sz(nsz) = ix
+      jy_sz(nsz) = jy
+      kz_sz(nsz) = kz
+      nx_sz(nsz) = normal(1)
+      ny_sz(nsz) = normal(2)
+      nz_sz(nsz) = normal(3)
+      body_sz(nsz) = sum(body_velocity * normal)
+      weight_sz(nsz) = projected_area / normal_axis_abs
+    end subroutine add_sample_z
+
+    integer function dominant_normal_axis(normal)
+      real(mytype), intent(in) :: normal(3)
+      real(mytype) :: ax, ay, az
+
+      ax = abs(normal(1))
+      ay = abs(normal(2))
+      az = abs(normal(3))
+      if (ax.ge.ay .and. ax.ge.az) then
+         dominant_normal_axis = 1
+      elseif (ay.ge.ax .and. ay.ge.az) then
+         dominant_normal_axis = 2
+      else
+         dominant_normal_axis = 3
+      endif
+    end function dominant_normal_axis
+
+    subroutine spread_vector(vx, vy, vz, qx, qy, qz)
+      real(mytype), intent(in) :: vx(:), vy(:), vz(:)
+      real(mytype), intent(out), dimension(xsize(1),xsize(2),xsize(3)) :: qx, qy, qz
+      real(mytype), allocatable :: qx2(:,:,:), qy2(:,:,:), qz2(:,:,:)
+      real(mytype), allocatable :: qx3(:,:,:), qy3(:,:,:), qz3(:,:,:)
+      integer :: s
+
+      qx = zero
+      qy = zero
+      qz = zero
+      do s = 1, nsx
+         qx(ix_sx(s),jy_sx(s),kz_sx(s)) = qx(ix_sx(s),jy_sx(s),kz_sx(s)) + vx(s) * nx_sx(s)
+         qy(ix_sx(s),jy_sx(s),kz_sx(s)) = qy(ix_sx(s),jy_sx(s),kz_sx(s)) + vx(s) * ny_sx(s)
+         qz(ix_sx(s),jy_sx(s),kz_sx(s)) = qz(ix_sx(s),jy_sx(s),kz_sx(s)) + vx(s) * nz_sx(s)
+      enddo
+
+      allocate(qx2(ysize(1),ysize(2),ysize(3)), qy2(ysize(1),ysize(2),ysize(3)), qz2(ysize(1),ysize(2),ysize(3)))
+      call transpose_x_to_y(qx, qx2)
+      call transpose_x_to_y(qy, qy2)
+      call transpose_x_to_y(qz, qz2)
+      do s = 1, nsy
+         qx2(ix_sy(s),jy_sy(s),kz_sy(s)) = qx2(ix_sy(s),jy_sy(s),kz_sy(s)) + vy(s) * nx_sy(s)
+         qy2(ix_sy(s),jy_sy(s),kz_sy(s)) = qy2(ix_sy(s),jy_sy(s),kz_sy(s)) + vy(s) * ny_sy(s)
+         qz2(ix_sy(s),jy_sy(s),kz_sy(s)) = qz2(ix_sy(s),jy_sy(s),kz_sy(s)) + vy(s) * nz_sy(s)
+      enddo
+
+      allocate(qx3(zsize(1),zsize(2),zsize(3)), qy3(zsize(1),zsize(2),zsize(3)), qz3(zsize(1),zsize(2),zsize(3)))
+      call transpose_y_to_z(qx2, qx3)
+      call transpose_y_to_z(qy2, qy3)
+      call transpose_y_to_z(qz2, qz3)
+      deallocate(qx2, qy2, qz2)
+
+      do s = 1, nsz
+         qx3(ix_sz(s),jy_sz(s),kz_sz(s)) = qx3(ix_sz(s),jy_sz(s),kz_sz(s)) + vz(s) * nx_sz(s)
+         qy3(ix_sz(s),jy_sz(s),kz_sz(s)) = qy3(ix_sz(s),jy_sz(s),kz_sz(s)) + vz(s) * ny_sz(s)
+         qz3(ix_sz(s),jy_sz(s),kz_sz(s)) = qz3(ix_sz(s),jy_sz(s),kz_sz(s)) + vz(s) * nz_sz(s)
+      enddo
+
+      allocate(qx2(ysize(1),ysize(2),ysize(3)), qy2(ysize(1),ysize(2),ysize(3)), qz2(ysize(1),ysize(2),ysize(3)))
+      call transpose_z_to_y(qx3, qx2)
+      call transpose_z_to_y(qy3, qy2)
+      call transpose_z_to_y(qz3, qz2)
+      deallocate(qx3, qy3, qz3)
+      call transpose_y_to_x(qx2, qx)
+      call transpose_y_to_x(qy2, qy)
+      call transpose_y_to_x(qz2, qz)
+      deallocate(qx2, qy2, qz2)
+    end subroutine spread_vector
+
+    subroutine sample_field(qx, qy, qz, vx, vy, vz)
+      real(mytype), intent(in), dimension(xsize(1),xsize(2),xsize(3)) :: qx, qy, qz
+      real(mytype), intent(out) :: vx(:), vy(:), vz(:)
+      real(mytype), allocatable :: qx2(:,:,:), qy2(:,:,:), qz2(:,:,:)
+      real(mytype), allocatable :: qx3(:,:,:), qy3(:,:,:), qz3(:,:,:)
+      integer :: s
+
+      vx = zero
+      vy = zero
+      vz = zero
+      do s = 1, nsx
+         vx(s) = qx(ix_sx(s),jy_sx(s),kz_sx(s)) * nx_sx(s) + &
+              qy(ix_sx(s),jy_sx(s),kz_sx(s)) * ny_sx(s) + &
+              qz(ix_sx(s),jy_sx(s),kz_sx(s)) * nz_sx(s)
+      enddo
+
+      allocate(qx2(ysize(1),ysize(2),ysize(3)), qy2(ysize(1),ysize(2),ysize(3)), qz2(ysize(1),ysize(2),ysize(3)))
+      call transpose_x_to_y(qx, qx2)
+      call transpose_x_to_y(qy, qy2)
+      call transpose_x_to_y(qz, qz2)
+      do s = 1, nsy
+         vy(s) = qx2(ix_sy(s),jy_sy(s),kz_sy(s)) * nx_sy(s) + &
+              qy2(ix_sy(s),jy_sy(s),kz_sy(s)) * ny_sy(s) + &
+              qz2(ix_sy(s),jy_sy(s),kz_sy(s)) * nz_sy(s)
+      enddo
+
+      allocate(qx3(zsize(1),zsize(2),zsize(3)), qy3(zsize(1),zsize(2),zsize(3)), qz3(zsize(1),zsize(2),zsize(3)))
+      call transpose_y_to_z(qx2, qx3)
+      call transpose_y_to_z(qy2, qy3)
+      call transpose_y_to_z(qz2, qz3)
+      deallocate(qx2, qy2, qz2)
+      do s = 1, nsz
+         vz(s) = qx3(ix_sz(s),jy_sz(s),kz_sz(s)) * nx_sz(s) + &
+              qy3(ix_sz(s),jy_sz(s),kz_sz(s)) * ny_sz(s) + &
+              qz3(ix_sz(s),jy_sz(s),kz_sz(s)) * nz_sz(s)
+      enddo
+      deallocate(qx3, qy3, qz3)
+    end subroutine sample_field
+
+    subroutine schur_matvec(vx, vy, vz, ax, ay, az)
+      real(mytype), intent(in) :: vx(:), vy(:), vz(:)
+      real(mytype), intent(out) :: ax(:), ay(:), az(:)
+      real(mytype), allocatable :: qx(:,:,:), qy(:,:,:), qz(:,:,:)
+
+      allocate(qx(xsize(1),xsize(2),xsize(3)))
+      allocate(qy(xsize(1),xsize(2),xsize(3)))
+      allocate(qz(xsize(1),xsize(2),xsize(3)))
+      call spread_vector(vx, vy, vz, qx, qy, qz)
+      call project_correction(qx, qy, qz)
+      call sample_field(qx, qy, qz, ax, ay, az)
+      deallocate(qx, qy, qz)
+    end subroutine schur_matvec
+
+    subroutine project_correction(qx, qy, qz)
+      real(mytype), intent(inout), dimension(xsize(1),xsize(2),xsize(3)) :: qx, qy, qz
+
+      call solve_poisson(div_visu_var, pp3, px1, py1, pz1, rho1, qx, qy, qz, ep1, drho1, divu3, &
+           save_bc_grad=.false., quiet=.true.)
+      call cor_vel(qx, qy, qz, px1, py1, pz1)
+    end subroutine project_correction
+
+    real(mytype) function schur_dot(ax, ay, az, bx, by, bz)
+      real(mytype), intent(in) :: ax(:), ay(:), az(:), bx(:), by(:), bz(:)
+      integer :: code_dot
+
+      schur_dot = zero
+      if (nsx.gt.0) schur_dot = schur_dot + sum(ax(1:nsx) * bx(1:nsx))
+      if (nsy.gt.0) schur_dot = schur_dot + sum(ay(1:nsy) * by(1:nsy))
+      if (nsz.gt.0) schur_dot = schur_dot + sum(az(1:nsz) * bz(1:nsz))
+      call MPI_Allreduce(MPI_IN_PLACE, schur_dot, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code_dot)
+    end function schur_dot
+
+    real(mytype) function y_x_coord(jloc)
+      integer, intent(in) :: jloc
+      integer :: jglob
+      jglob = xstart(2) + jloc - 1
+      if (istret.eq.0) then
+         y_x_coord = real(jglob - 1, mytype) * dy
+      else
+         y_x_coord = yp(jglob)
+      endif
+    end function y_x_coord
+
+    real(mytype) function z_x_coord(kloc)
+      integer, intent(in) :: kloc
+      z_x_coord = real(xstart(3) + kloc - 2, mytype) * dz
+    end function z_x_coord
+
+    real(mytype) function x_y_coord(iloc)
+      integer, intent(in) :: iloc
+      x_y_coord = real(ystart(1) + iloc - 2, mytype) * dx
+    end function x_y_coord
+
+    real(mytype) function z_y_coord(kloc)
+      integer, intent(in) :: kloc
+      z_y_coord = real(ystart(3) + kloc - 2, mytype) * dz
+    end function z_y_coord
+
+    real(mytype) function x_z_coord(iloc)
+      integer, intent(in) :: iloc
+      x_z_coord = real(zstart(1) + iloc - 2, mytype) * dx
+    end function x_z_coord
+
+    real(mytype) function y_z_coord(jloc)
+      integer, intent(in) :: jloc
+      integer :: jglob
+      jglob = zstart(2) + jloc - 1
+      if (istret.eq.0) then
+         y_z_coord = real(jglob - 1, mytype) * dy
+      else
+         y_z_coord = yp(jglob)
+      endif
+    end function y_z_coord
+
+    integer function lower_velocity_y_index(ypos)
+      real(mytype), intent(in) :: ypos
+      integer :: jj
+
+      lower_velocity_y_index = 1
+      do jj = 1, size(yp)
+         if (yp(jj).lt.ypos) lower_velocity_y_index = jj
+      enddo
+    end function lower_velocity_y_index
+
+    integer function upper_velocity_y_index(ypos)
+      real(mytype), intent(in) :: ypos
+      integer :: jj
+
+      upper_velocity_y_index = size(yp)
+      do jj = 1, size(yp)
+         if (yp(jj).gt.ypos) then
+            upper_velocity_y_index = jj
+            return
+         endif
+      enddo
+    end function upper_velocity_y_index
+
+  end subroutine ellipsoid_schur_projection
   !############################################################################
   !subroutine DIVERGENCe
   !Calculation of div u* for nlock=1 and of div u^{n+1} for nlock=2
@@ -260,10 +824,13 @@ contains
     USE variables
     USE var, ONLY: ta1, tb1, tc1, pp1, pgy1, pgz1, di1, &
          duxdxp2, uyp2, uzp2, duydypi2, upi2, ta2, dipp2, &
-         duxydxyp3, uzp3, po3, dipp3, nxmsize, nymsize, nzmsize
+         duxydxyp3, uzp3, po3, dipp3, nxmsize, nymsize, nzmsize, &
+         ux2, uy2, uz2, ux3, uy3, uz3
     USE MPI
     USE ibm_param
     USE ellipsoid_utils, ONLY: navierFieldGen
+    USE ellip, ONLY: ellipsoid_projection_flux_rhs_x, ellipsoid_projection_flux_rhs_y, &
+         ellipsoid_projection_flux_rhs_z
 
     implicit none
 
@@ -305,6 +872,10 @@ contains
 
     call derxvp(pp1,ta1,di1,sx,cfx6,csx6,cwx6,xsize(1),nxmsize,xsize(2),xsize(3),0)
 
+    if (itype.eq.itype_ellip .and. xnu.eq.zero .and. ellipsoid_projection_flux_fix.gt.0) then
+       call ellipsoid_projection_flux_rhs_x(pp1, ux1, uy1, uz1)
+    endif
+
     if (ilmn.and.(nlock.gt.0)) then
        if ((nlock.eq.1).and.(.not.ivarcoeff)) then
           !! Approximate -div(rho u) using ddt(rho)
@@ -333,6 +904,13 @@ contains
     !! Compute sum dudx + dvdy
     duydypi2(:,:,:) = duydypi2(:,:,:) + upi2(:,:,:)
 
+    if (itype.eq.itype_ellip .and. xnu.eq.zero .and. ellipsoid_projection_flux_fix.gt.0) then
+       call transpose_x_to_y(ux1, ux2)
+       call transpose_x_to_y(uy1, uy2)
+       call transpose_x_to_y(uz1, uz2)
+       call ellipsoid_projection_flux_rhs_y(duydypi2, ux2, uy2, uz2)
+    endif
+
     call interyvp(upi2,uzp2,dipp2,sy,cifyp6,cisyp6,ciwyp6,(ph1%yen(1)-ph1%yst(1)+1),ysize(2),nymsize,ysize(3),1)
 
     call transpose_y_to_z(duydypi2,duxydxyp3,ph3)!->NXM NYM NZ
@@ -346,6 +924,13 @@ contains
 
     !! Compute sum dudx + dvdy + dwdz
     pp3(:,:,:) = pp3(:,:,:) + po3(:,:,:)
+
+    if (itype.eq.itype_ellip .and. xnu.eq.zero .and. ellipsoid_projection_flux_fix.gt.0) then
+       call transpose_y_to_z(ux2, ux3)
+       call transpose_y_to_z(uy2, uy3)
+       call transpose_y_to_z(uz2, uz3)
+       call ellipsoid_projection_flux_rhs_z(pp3, ux3, uy3, uz3)
+    endif
 
     if (nlock==2) then
        ! Line below sometimes generates issues with Intel
@@ -369,7 +954,8 @@ contains
     call MPI_ALLREDUCE(MPI_IN_PLACE, tmoy, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
     call MPI_ALLREDUCE(MPI_IN_PLACE, tmax, 1, real_type, MPI_MAX, MPI_COMM_WORLD, code)
 
-    if ((nrank == 0) .and. (nlock > 0).and.(mod(itime, ilist) == 0 .or. itime == ifirst .or. itime==ilast)) then
+    if ((nrank == 0) .and. (nlock > 0) .and. (.not. suppress_divergence_output) .and. &
+         (mod(itime, ilist) == 0 .or. itime == ifirst .or. itime==ilast)) then
        if (nlock == 2) then
           write(*,*) 'DIV U  max mean=',real(tmax,mytype),real(tmoy/real(nproc),mytype)
        else
@@ -497,7 +1083,8 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, tmoy, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
    call MPI_ALLREDUCE(MPI_IN_PLACE, tmax, 1, real_type, MPI_MAX, MPI_COMM_WORLD, code)
 
-   if ((nrank == 0) .and. (nlock > 0).and.(mod(itime, ilist) == 0 .or. itime == ifirst .or. itime==ilast)) then
+   if ((nrank == 0) .and. (nlock > 0) .and. (.not. suppress_divergence_output) .and. &
+        (mod(itime, ilist) == 0 .or. itime == ifirst .or. itime==ilast)) then
       if (nlock == 2) then
          write(*,*) 'DIV U  max mean=',real(tmax,mytype),real(tmoy/real(nproc),mytype)
       else
@@ -522,7 +1109,7 @@ contains
   ! output: px1, py1, pz1 - pressure gradients (on velocity mesh)
   !written by SL 2018
   !############################################################################
-  subroutine gradp(px1,py1,pz1,pp3)
+  subroutine gradp(px1,py1,pz1,pp3,save_bc_grad)
 
     USE param
     USE variables
@@ -534,10 +1121,15 @@ contains
 
     implicit none
 
+    logical, intent(in), optional :: save_bc_grad
     integer :: i,j,k
+    logical :: save_bc_grad_local
 
     real(mytype),dimension(ph3%zst(1):ph3%zen(1),ph3%zst(2):ph3%zen(2),nzmsize) :: pp3
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: px1,py1,pz1
+
+    save_bc_grad_local = .true.
+    if (present(save_bc_grad)) save_bc_grad_local = save_bc_grad
 
     !WORK Z-PENCILS
     call interzpv(ppi3,pp3,dip3,sz,cifip6z,cisip6z,ciwip6z,cifz6,cisz6,ciwz6,&
@@ -568,6 +1160,8 @@ contains
          nxmsize,xsize(1),xsize(2),xsize(3),1)
     call interxpv(pz1,pgz1,di1,sx,cifip6,cisip6,ciwip6,cifx6,cisx6,ciwx6,&
          nxmsize,xsize(1),xsize(2),xsize(3),1)
+
+    if (.not. save_bc_grad_local) return
 
     if (iforces.eq.1) then
        call interxpv(ppi1,pp1,di1,sx,cifip6,cisip6,ciwip6,cifx6,cisx6,ciwx6,&

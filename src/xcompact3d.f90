@@ -10,7 +10,7 @@ program xcompact3d
   use transeq, only : calculate_transeq_rhs
   use time_integrators, only : int_time
   use navier, only : velocity_to_momentum, momentum_to_velocity, pre_correc, &
-       calc_divu_constraint, solve_poisson, cor_vel
+       calc_divu_constraint, solve_poisson, cor_vel, ellipsoid_schur_projection
   use tools, only : restart, simu_stats, apply_spatial_filter, read_inflow
   use turbine, only : compute_turbines
   use ibm_param
@@ -23,10 +23,11 @@ program xcompact3d
 
   use ellip, only : update_ellipsoid, update_ellipsoid_cv, set_ellipsoid_cv_bounds, &
        ellipsoid_bc_diagnostic, ellipsoid_pressure_correction_diagnostic, &
-       ellipsoid_projection_slip_correction
+       ellipsoid_projection_slip_correction, ellipsoid_pressure_grid_diagnostic, &
+       ellipsoid_lagrange_projection_step
   use cyl,   only : update_cylinder_state
   implicit none
-  integer :: iounit, islip_projection
+  integer :: iounit, islip_projection, ilagrange_projection
 
 
 
@@ -81,6 +82,7 @@ program xcompact3d
           endif
         endif
         if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
+           call ellipsoid_pressure_grid_diagnostic("start_substep")
            call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "start_substep")
         endif
         if (itype.eq.itype_ellip.and.(mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast)) then
@@ -121,6 +123,23 @@ program xcompact3d
            call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "before_cor_vel")
         endif
         call cor_vel(ux1,uy1,uz1,px1,py1,pz1)
+        if (itype.eq.itype_ellip .and. xnu.eq.zero .and. ellipsoid_schur_projection_iters.gt.0) then
+           call ellipsoid_schur_projection(div_visu_var, pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, drho1, divu3)
+           if (mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast) then
+              call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "after_schur_projection")
+           endif
+        endif
+        if (itype.eq.itype_ellip .and. xnu.eq.zero .and. ellipsoid_lagrange_projection_steps.gt.0) then
+           do ilagrange_projection = 1, ellipsoid_lagrange_projection_steps
+              call ellipsoid_lagrange_projection_step(ux1, uy1, uz1, "iter_lagrange")
+              call calc_divu_constraint(divu3,rho1,phi1)
+              call solve_poisson(div_visu_var,pp3,px1,py1,pz1,rho1,ux1,uy1,uz1,ep1,drho1,divu3)
+              call cor_vel(ux1,uy1,uz1,px1,py1,pz1)
+              if (mod(itime,ilist)==0.or.itime==ifirst.or.itime==ilast) then
+                 call ellipsoid_bc_diagnostic(ux1, uy1, uz1, "after_lagrange_reproject")
+              endif
+           enddo
+        endif
         if (itype.eq.itype_ellip .and. xnu.eq.zero .and. ellipsoid_projection_slip_fix.gt.0) then
            do islip_projection = 1, ellipsoid_projection_slip_fix
               call ellipsoid_projection_slip_correction(ux1, uy1, uz1, "iter_slip")

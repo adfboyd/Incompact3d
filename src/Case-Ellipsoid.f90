@@ -17,7 +17,9 @@ PUBLIC :: init_ellip, boundary_conditions_ellip, postprocess_ellip, &
             geomcomplex_ellip, visu_ellip, visu_ellip_init, update_ellipsoid, &
             check_body_proximity, update_ellipsoid_cv, set_ellipsoid_cv_bounds, &
             init_body_dat, ellipsoid_bc_diagnostic, ellipsoid_pressure_correction_diagnostic, &
-            ellipsoid_projection_slip_correction
+            ellipsoid_projection_slip_correction, ellipsoid_projection_flux_rhs_x, &
+            ellipsoid_projection_flux_rhs_y, ellipsoid_projection_flux_rhs_z, &
+            ellipsoid_pressure_grid_diagnostic, ellipsoid_lagrange_projection_step
 
 contains
 
@@ -1282,6 +1284,227 @@ subroutine ellipsoid_pressure_correction_diagnostic(ux1, uy1, uz1, px1, py1, pz1
 end subroutine ellipsoid_pressure_correction_diagnostic
 
 !********************************************************************
+subroutine ellipsoid_projection_flux_rhs_x(rhsx, ux1, uy1, uz1)
+
+    use complex_geometry, only : nobjx, xi, xf
+    use ellipsoid_utils, only : CalculatePointVelocity_Multi, EllipsoidNormal_Multi
+    use param, only : zero, half, dx, dy, dz, xlx
+    use var, only : nxmsize, t
+    use decomp_2d_mpi, only : nrank
+    use MPI
+
+    implicit none
+
+    real(mytype), intent(inout), dimension(nxmsize,xsize(2),xsize(3)) :: rhsx
+    real(mytype), intent(in), dimension(xsize(1),xsize(2),xsize(3)) :: ux1, uy1, uz1
+
+    integer :: j, k, iobj, ip, code
+    integer :: local_count, global_count
+    real(mytype) :: ym, zm, xp, xout, area, volume
+    real(mytype) :: point(3), velocity(3), normal(3), source, normal_flux
+    real(mytype) :: local_flux_sum2, local_flux_max, local_source_sum
+    real(mytype) :: global_flux_sum2, global_flux_max, global_source_sum
+
+    local_count = 0
+    local_flux_sum2 = zero
+    local_flux_max = zero
+    local_source_sum = zero
+    area = dy * dz
+    volume = dx * dy * dz
+
+    do k = 1, xsize(3)
+       zm = real(xstart(3)+k-2, mytype) * dz
+       do j = 1, xsize(2)
+          ym = real(xstart(2)+j-2, mytype) * dy
+          do iobj = 1, nobjx(j,k)
+             if (xi(iobj,j,k) .gt. zero) then
+                point = [xi(iobj,j,k), ym, zm]
+                call EllipsoidNormal_Multi(point, normal)
+                xout = point(1) + sign(half * dx, normal(1))
+                ip = int(xout / dx) + 1
+                if (ip.ge.1 .and. ip.le.nxmsize) then
+                   velocity = [ux1(min(max(ip,1),xsize(1)),j,k), &
+                        uy1(min(max(ip,1),xsize(1)),j,k), uz1(min(max(ip,1),xsize(1)),j,k)]
+                   call ellipsoid_projection_flux_source(point, velocity, normal, area, volume, &
+                        source, normal_flux)
+                   rhsx(ip,j,k) = rhsx(ip,j,k) + source
+                   call accumulate_projection_flux_stats(source, normal_flux, local_count, &
+                        local_flux_sum2, local_flux_max, local_source_sum)
+                endif
+             endif
+
+             if (xf(iobj,j,k) .lt. xlx) then
+                point = [xf(iobj,j,k), ym, zm]
+                call EllipsoidNormal_Multi(point, normal)
+                xout = point(1) + sign(half * dx, normal(1))
+                ip = int(xout / dx) + 1
+                if (ip.ge.1 .and. ip.le.nxmsize) then
+                   velocity = [ux1(min(max(ip,1),xsize(1)),j,k), &
+                        uy1(min(max(ip,1),xsize(1)),j,k), uz1(min(max(ip,1),xsize(1)),j,k)]
+                   call ellipsoid_projection_flux_source(point, velocity, normal, area, volume, &
+                        source, normal_flux)
+                   rhsx(ip,j,k) = rhsx(ip,j,k) + source
+                   call accumulate_projection_flux_stats(source, normal_flux, local_count, &
+                        local_flux_sum2, local_flux_max, local_source_sum)
+                endif
+             endif
+          enddo
+       enddo
+    enddo
+
+    call report_projection_flux_stats("x", local_count, local_flux_sum2, local_flux_max, &
+         local_source_sum, global_count, global_flux_sum2, global_flux_max, global_source_sum)
+
+end subroutine ellipsoid_projection_flux_rhs_x
+
+!********************************************************************
+subroutine ellipsoid_projection_flux_rhs_y(rhsy, ux2, uy2, uz2)
+
+    use complex_geometry, only : nobjy, yi, yf
+    use ellipsoid_utils, only : EllipsoidNormal_Multi
+    use param, only : zero, half, dx, dy, dz, yly
+    use variables, only : yp
+    use var, only : nymsize
+
+    implicit none
+
+    real(mytype), intent(inout), dimension(ph1%yst(1):ph1%yen(1),nymsize,ysize(3)) :: rhsy
+    real(mytype), intent(in), dimension(ysize(1),ysize(2),ysize(3)) :: ux2, uy2, uz2
+
+    integer :: i, j, k, iobj, jp
+    integer :: local_count, global_count
+    real(mytype) :: xm, zm, yout, area, volume
+    real(mytype) :: point(3), velocity(3), normal(3), source, normal_flux
+    real(mytype) :: local_flux_sum2, local_flux_max, local_source_sum
+    real(mytype) :: global_flux_sum2, global_flux_max, global_source_sum
+
+    local_count = 0
+    local_flux_sum2 = zero
+    local_flux_max = zero
+    local_source_sum = zero
+    area = dx * dz
+    volume = dx * dy * dz
+
+    do k = 1, ysize(3)
+       zm = real(ystart(3)+k-2, mytype) * dz
+       do i = 1, ysize(1)
+          xm = real(ystart(1)+i-2, mytype) * dx
+          do j = 1, nobjy(i,k)
+             if (yi(j,i,k) .gt. zero) then
+                point = [xm, yi(j,i,k), zm]
+                call EllipsoidNormal_Multi(point, normal)
+                yout = point(2) + sign(half * dy, normal(2))
+                jp = locate_pressure_y(yout)
+                if (i.ge.ph1%yst(1) .and. i.le.ph1%yen(1) .and. jp.ge.1 .and. jp.le.nymsize) then
+                   velocity = [ux2(i,min(max(jp,1),ysize(2)),k), &
+                        uy2(i,min(max(jp,1),ysize(2)),k), uz2(i,min(max(jp,1),ysize(2)),k)]
+                   call ellipsoid_projection_flux_source(point, velocity, normal, area, volume, &
+                        source, normal_flux)
+                   rhsy(i,jp,k) = rhsy(i,jp,k) + source
+                   call accumulate_projection_flux_stats(source, normal_flux, local_count, &
+                        local_flux_sum2, local_flux_max, local_source_sum)
+                endif
+             endif
+
+             if (yf(j,i,k) .lt. yly) then
+                point = [xm, yf(j,i,k), zm]
+                call EllipsoidNormal_Multi(point, normal)
+                yout = point(2) + sign(half * dy, normal(2))
+                jp = locate_pressure_y(yout)
+                if (i.ge.ph1%yst(1) .and. i.le.ph1%yen(1) .and. jp.ge.1 .and. jp.le.nymsize) then
+                   velocity = [ux2(i,min(max(jp,1),ysize(2)),k), &
+                        uy2(i,min(max(jp,1),ysize(2)),k), uz2(i,min(max(jp,1),ysize(2)),k)]
+                   call ellipsoid_projection_flux_source(point, velocity, normal, area, volume, &
+                        source, normal_flux)
+                   rhsy(i,jp,k) = rhsy(i,jp,k) + source
+                   call accumulate_projection_flux_stats(source, normal_flux, local_count, &
+                        local_flux_sum2, local_flux_max, local_source_sum)
+                endif
+             endif
+          enddo
+       enddo
+    enddo
+
+    call report_projection_flux_stats("y", local_count, local_flux_sum2, local_flux_max, &
+         local_source_sum, global_count, global_flux_sum2, global_flux_max, global_source_sum)
+
+end subroutine ellipsoid_projection_flux_rhs_y
+
+!********************************************************************
+subroutine ellipsoid_projection_flux_rhs_z(rhsz, ux3, uy3, uz3)
+
+    use complex_geometry, only : nobjz, zi, zf
+    use ellipsoid_utils, only : EllipsoidNormal_Multi
+    use param, only : zero, half, dx, dy, dz, zlz
+    use var, only : nzmsize
+
+    implicit none
+
+    real(mytype), intent(inout), dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize) :: rhsz
+    real(mytype), intent(in), dimension(zsize(1),zsize(2),zsize(3)) :: ux3, uy3, uz3
+
+    integer :: i, j, k, iobj, kp
+    integer :: local_count, global_count
+    real(mytype) :: xm, ym, zout, area, volume
+    real(mytype) :: point(3), velocity(3), normal(3), source, normal_flux
+    real(mytype) :: local_flux_sum2, local_flux_max, local_source_sum
+    real(mytype) :: global_flux_sum2, global_flux_max, global_source_sum
+
+    local_count = 0
+    local_flux_sum2 = zero
+    local_flux_max = zero
+    local_source_sum = zero
+    area = dx * dy
+    volume = dx * dy * dz
+
+    do j = 1, zsize(2)
+       ym = real(zstart(2)+j-2, mytype) * dy
+       do i = 1, zsize(1)
+          xm = real(zstart(1)+i-2, mytype) * dx
+          do k = 1, nobjz(i,j)
+             if (zi(k,i,j) .gt. zero) then
+                point = [xm, ym, zi(k,i,j)]
+                call EllipsoidNormal_Multi(point, normal)
+                zout = point(3) + sign(half * dz, normal(3))
+                kp = int(zout / dz) + 1
+                if (i.ge.ph1%zst(1) .and. i.le.ph1%zen(1) .and. &
+                     j.ge.ph1%zst(2) .and. j.le.ph1%zen(2) .and. kp.ge.1 .and. kp.le.nzmsize) then
+                   velocity = [ux3(i,j,min(max(kp,1),zsize(3))), &
+                        uy3(i,j,min(max(kp,1),zsize(3))), uz3(i,j,min(max(kp,1),zsize(3)))]
+                   call ellipsoid_projection_flux_source(point, velocity, normal, area, volume, &
+                        source, normal_flux)
+                   rhsz(i,j,kp) = rhsz(i,j,kp) + source
+                   call accumulate_projection_flux_stats(source, normal_flux, local_count, &
+                        local_flux_sum2, local_flux_max, local_source_sum)
+                endif
+             endif
+
+             if (zf(k,i,j) .lt. zlz) then
+                point = [xm, ym, zf(k,i,j)]
+                call EllipsoidNormal_Multi(point, normal)
+                zout = point(3) + sign(half * dz, normal(3))
+                kp = int(zout / dz) + 1
+                if (i.ge.ph1%zst(1) .and. i.le.ph1%zen(1) .and. &
+                     j.ge.ph1%zst(2) .and. j.le.ph1%zen(2) .and. kp.ge.1 .and. kp.le.nzmsize) then
+                   velocity = [ux3(i,j,min(max(kp,1),zsize(3))), &
+                        uy3(i,j,min(max(kp,1),zsize(3))), uz3(i,j,min(max(kp,1),zsize(3)))]
+                   call ellipsoid_projection_flux_source(point, velocity, normal, area, volume, &
+                        source, normal_flux)
+                   rhsz(i,j,kp) = rhsz(i,j,kp) + source
+                   call accumulate_projection_flux_stats(source, normal_flux, local_count, &
+                        local_flux_sum2, local_flux_max, local_source_sum)
+                endif
+             endif
+          enddo
+       enddo
+    enddo
+
+    call report_projection_flux_stats("z", local_count, local_flux_sum2, local_flux_max, &
+         local_source_sum, global_count, global_flux_sum2, global_flux_max, global_source_sum)
+
+end subroutine ellipsoid_projection_flux_rhs_z
+
+!********************************************************************
 subroutine ellipsoid_projection_slip_correction(ux1, uy1, uz1, stage)
 
     use complex_geometry, only : nobjx, nobjy, nobjz, xi, xf, yi, yf, zi, zf
@@ -1499,6 +1722,628 @@ subroutine ellipsoid_projection_slip_correction(ux1, uy1, uz1, stage)
 end subroutine ellipsoid_projection_slip_correction
 
 !********************************************************************
+subroutine ellipsoid_lagrange_projection_step(ux1, uy1, uz1, stage)
+
+    use complex_geometry, only : nobjx, nobjy, nobjz, xi, xf, yi, yf, zi, zf
+    use param, only : zero, dx, dy, dz, xlx, yly, zlz, izap, istret, xnu, ifirst, ilast, itime, itr
+    use variables, only : yp, ilist
+    use ibm_param, only : ellipsoid_lagrange_projection_relax
+    use var, only : ux2, uy2, uz2, ux3, uy3, uz3, t
+    use decomp_2d_mpi, only : nrank
+    use MPI
+
+    implicit none
+
+    real(mytype), intent(inout), dimension(xsize(1),xsize(2),xsize(3)) :: ux1, uy1, uz1
+    character(len=*), intent(in) :: stage
+
+    real(mytype), allocatable, dimension(:,:,:) :: cx, cy, cz, ccount
+    integer :: i, j, k, iobj, ix, jy, kz
+    integer :: local_count, global_count, code, iunit
+    logical :: file_exists
+    real(mytype) :: point(3), velocity(3), correction(3), sample_weight
+    real(mytype) :: local_residual_max, local_residual_sum2
+    real(mytype) :: local_correction_max, local_correction_sum2
+    real(mytype) :: global_residual_max, global_residual_sum2
+    real(mytype) :: global_correction_max, global_correction_sum2
+    real(mytype) :: local_weight_sum, global_weight_sum
+    real(mytype) :: residual_rms, correction_rms, relax
+
+    relax = ellipsoid_lagrange_projection_relax
+    local_count = 0
+    local_residual_max = zero
+    local_residual_sum2 = zero
+    local_correction_max = zero
+    local_correction_sum2 = zero
+    local_weight_sum = zero
+
+    allocate(cx(xsize(1),xsize(2),xsize(3)))
+    allocate(cy(xsize(1),xsize(2),xsize(3)))
+    allocate(cz(xsize(1),xsize(2),xsize(3)))
+    allocate(ccount(xsize(1),xsize(2),xsize(3)))
+    cx = zero
+    cy = zero
+    cz = zero
+    ccount = zero
+
+    do k = 1, xsize(3)
+       do j = 1, xsize(2)
+          do iobj = 1, nobjx(j,k)
+             if (xi(iobj,j,k) .gt. zero) then
+                ix = xi(iobj,j,k) / dx + 1
+                if (izap.eq.1) ix = ix - 1
+                if (ix.ge.1 .and. ix.le.xsize(1)) then
+                   point = [xi(iobj,j,k), y_velocity_coord(j), z_velocity_coord(k)]
+                   velocity = [ux1(ix,j,k), uy1(ix,j,k), uz1(ix,j,k)]
+                   call accumulate_lagrange_sample(point, velocity, relax, dy*dz, 1, correction, sample_weight, &
+                        local_residual_max, local_residual_sum2, local_correction_max, &
+                        local_correction_sum2, local_weight_sum, local_count)
+                   cx(ix,j,k) = cx(ix,j,k) + sample_weight * correction(1)
+                   cy(ix,j,k) = cy(ix,j,k) + sample_weight * correction(2)
+                   cz(ix,j,k) = cz(ix,j,k) + sample_weight * correction(3)
+                   ccount(ix,j,k) = ccount(ix,j,k) + sample_weight
+                endif
+             endif
+
+             if (xf(iobj,j,k) .lt. xlx) then
+                ix = (xf(iobj,j,k) + dx) / dx + 1
+                if (izap.eq.1) ix = ix + 1
+                if (ix.ge.1 .and. ix.le.xsize(1)) then
+                   point = [xf(iobj,j,k), y_velocity_coord(j), z_velocity_coord(k)]
+                   velocity = [ux1(ix,j,k), uy1(ix,j,k), uz1(ix,j,k)]
+                   call accumulate_lagrange_sample(point, velocity, relax, dy*dz, 1, correction, sample_weight, &
+                        local_residual_max, local_residual_sum2, local_correction_max, &
+                        local_correction_sum2, local_weight_sum, local_count)
+                   cx(ix,j,k) = cx(ix,j,k) + sample_weight * correction(1)
+                   cy(ix,j,k) = cy(ix,j,k) + sample_weight * correction(2)
+                   cz(ix,j,k) = cz(ix,j,k) + sample_weight * correction(3)
+                   ccount(ix,j,k) = ccount(ix,j,k) + sample_weight
+                endif
+             endif
+          enddo
+       enddo
+    enddo
+
+    call apply_lagrange_corrections_x(ux1, uy1, uz1, cx, cy, cz, ccount)
+    deallocate(cx, cy, cz, ccount)
+
+    call transpose_x_to_y(ux1, ux2)
+    call transpose_x_to_y(uy1, uy2)
+    call transpose_x_to_y(uz1, uz2)
+
+    allocate(cx(ysize(1),ysize(2),ysize(3)))
+    allocate(cy(ysize(1),ysize(2),ysize(3)))
+    allocate(cz(ysize(1),ysize(2),ysize(3)))
+    allocate(ccount(ysize(1),ysize(2),ysize(3)))
+    cx = zero
+    cy = zero
+    cz = zero
+    ccount = zero
+
+    do k = 1, ysize(3)
+       do i = 1, ysize(1)
+          do j = 1, nobjy(i,k)
+             if (yi(j,i,k) .gt. zero) then
+                jy = lower_velocity_y_index(yi(j,i,k))
+                if (izap.eq.1) jy = jy - 1
+                if (jy.ge.1 .and. jy.le.ysize(2)) then
+                   point = [x_y_pencil_coord(i), yi(j,i,k), z_y_pencil_coord(k)]
+                   velocity = [ux2(i,jy,k), uy2(i,jy,k), uz2(i,jy,k)]
+                   call accumulate_lagrange_sample(point, velocity, relax, dx*dz, 2, correction, sample_weight, &
+                        local_residual_max, local_residual_sum2, local_correction_max, &
+                        local_correction_sum2, local_weight_sum, local_count)
+                   cx(i,jy,k) = cx(i,jy,k) + sample_weight * correction(1)
+                   cy(i,jy,k) = cy(i,jy,k) + sample_weight * correction(2)
+                   cz(i,jy,k) = cz(i,jy,k) + sample_weight * correction(3)
+                   ccount(i,jy,k) = ccount(i,jy,k) + sample_weight
+                endif
+             endif
+
+             if (yf(j,i,k) .lt. yly) then
+                jy = upper_velocity_y_index(yf(j,i,k))
+                if (izap.eq.1) jy = jy + 1
+                if (jy.ge.1 .and. jy.le.ysize(2)) then
+                   point = [x_y_pencil_coord(i), yf(j,i,k), z_y_pencil_coord(k)]
+                   velocity = [ux2(i,jy,k), uy2(i,jy,k), uz2(i,jy,k)]
+                   call accumulate_lagrange_sample(point, velocity, relax, dx*dz, 2, correction, sample_weight, &
+                        local_residual_max, local_residual_sum2, local_correction_max, &
+                        local_correction_sum2, local_weight_sum, local_count)
+                   cx(i,jy,k) = cx(i,jy,k) + sample_weight * correction(1)
+                   cy(i,jy,k) = cy(i,jy,k) + sample_weight * correction(2)
+                   cz(i,jy,k) = cz(i,jy,k) + sample_weight * correction(3)
+                   ccount(i,jy,k) = ccount(i,jy,k) + sample_weight
+                endif
+             endif
+          enddo
+       enddo
+    enddo
+
+    call apply_lagrange_corrections_y(ux2, uy2, uz2, cx, cy, cz, ccount)
+    deallocate(cx, cy, cz, ccount)
+
+    call transpose_y_to_z(ux2, ux3)
+    call transpose_y_to_z(uy2, uy3)
+    call transpose_y_to_z(uz2, uz3)
+
+    allocate(cx(zsize(1),zsize(2),zsize(3)))
+    allocate(cy(zsize(1),zsize(2),zsize(3)))
+    allocate(cz(zsize(1),zsize(2),zsize(3)))
+    allocate(ccount(zsize(1),zsize(2),zsize(3)))
+    cx = zero
+    cy = zero
+    cz = zero
+    ccount = zero
+
+    do j = 1, zsize(2)
+       do i = 1, zsize(1)
+          do k = 1, nobjz(i,j)
+             if (zi(k,i,j) .gt. zero) then
+                kz = zi(k,i,j) / dz + 1
+                if (izap.eq.1) kz = kz - 1
+                if (kz.ge.1 .and. kz.le.zsize(3)) then
+                   point = [x_z_pencil_coord(i), y_z_pencil_coord(j), zi(k,i,j)]
+                   velocity = [ux3(i,j,kz), uy3(i,j,kz), uz3(i,j,kz)]
+                   call accumulate_lagrange_sample(point, velocity, relax, dx*dy, 3, correction, sample_weight, &
+                        local_residual_max, local_residual_sum2, local_correction_max, &
+                        local_correction_sum2, local_weight_sum, local_count)
+                   cx(i,j,kz) = cx(i,j,kz) + sample_weight * correction(1)
+                   cy(i,j,kz) = cy(i,j,kz) + sample_weight * correction(2)
+                   cz(i,j,kz) = cz(i,j,kz) + sample_weight * correction(3)
+                   ccount(i,j,kz) = ccount(i,j,kz) + sample_weight
+                endif
+             endif
+
+             if (zf(k,i,j) .lt. zlz) then
+                kz = (zf(k,i,j) + dz) / dz + 1
+                if (izap.eq.1) kz = kz + 1
+                if (kz.ge.1 .and. kz.le.zsize(3)) then
+                   point = [x_z_pencil_coord(i), y_z_pencil_coord(j), zf(k,i,j)]
+                   velocity = [ux3(i,j,kz), uy3(i,j,kz), uz3(i,j,kz)]
+                   call accumulate_lagrange_sample(point, velocity, relax, dx*dy, 3, correction, sample_weight, &
+                        local_residual_max, local_residual_sum2, local_correction_max, &
+                        local_correction_sum2, local_weight_sum, local_count)
+                   cx(i,j,kz) = cx(i,j,kz) + sample_weight * correction(1)
+                   cy(i,j,kz) = cy(i,j,kz) + sample_weight * correction(2)
+                   cz(i,j,kz) = cz(i,j,kz) + sample_weight * correction(3)
+                   ccount(i,j,kz) = ccount(i,j,kz) + sample_weight
+                endif
+             endif
+          enddo
+       enddo
+    enddo
+
+    call apply_lagrange_corrections_z(ux3, uy3, uz3, cx, cy, cz, ccount)
+    deallocate(cx, cy, cz, ccount)
+
+    call transpose_z_to_y(ux3, ux2)
+    call transpose_z_to_y(uy3, uy2)
+    call transpose_z_to_y(uz3, uz2)
+    call transpose_y_to_x(ux2, ux1)
+    call transpose_y_to_x(uy2, uy1)
+    call transpose_y_to_x(uz2, uz1)
+
+    global_count = local_count
+    global_residual_max = local_residual_max
+    global_residual_sum2 = local_residual_sum2
+    global_correction_max = local_correction_max
+    global_correction_sum2 = local_correction_sum2
+    global_weight_sum = local_weight_sum
+
+    call MPI_Allreduce(MPI_IN_PLACE, global_count, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_residual_max, 1, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_residual_sum2, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_correction_max, 1, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_correction_sum2, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_weight_sum, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+
+    residual_rms = zero
+    correction_rms = zero
+    if (global_weight_sum.gt.zero) then
+       residual_rms = sqrt(global_residual_sum2 / global_weight_sum)
+       correction_rms = sqrt(global_correction_sum2 / global_weight_sum)
+    endif
+
+    if (nrank.eq.0 .and. (mod(itime,ilist).eq.0 .or. itime.eq.ifirst .or. itime.eq.ilast)) then
+       write(*,*) "Ellipsoid Lagrange projection step ", trim(stage), &
+            ": samples=", global_count, " residual max/rms=", global_residual_max, residual_rms, &
+            " correction max/rms=", global_correction_max, correction_rms, &
+            " weight_sum=", global_weight_sum, " relax=", relax
+
+       inquire(file="ellipsoid_lagrange_projection.dat", exist=file_exists)
+       open(newunit=iunit, file="ellipsoid_lagrange_projection.dat", status="unknown", position="append")
+       if (.not. file_exists) then
+          write(iunit,*) "# t itime itr stage samples weight_sum residual_max residual_rms correction_max correction_rms relax xnu"
+       endif
+       write(iunit,*) t, itime, itr, trim(stage), global_count, global_weight_sum, &
+            global_residual_max, residual_rms, global_correction_max, correction_rms, relax, xnu
+       close(iunit)
+    endif
+
+contains
+
+    subroutine accumulate_lagrange_sample(point, velocity, relax, projected_area, axis, correction, sample_weight, &
+         residual_max, residual_sum2, correction_max, correction_sum2, weight_sum, count)
+        use ellipsoid_utils, only : CalculatePointVelocity_Multi, EllipsoidNormal_Multi
+        implicit none
+        real(mytype), intent(in) :: point(3), velocity(3), relax, projected_area
+        integer, intent(in) :: axis
+        real(mytype), intent(out) :: correction(3), sample_weight
+        real(mytype), intent(inout) :: residual_max, residual_sum2
+        real(mytype), intent(inout) :: correction_max, correction_sum2
+        real(mytype), intent(inout) :: weight_sum
+        integer, intent(inout) :: count
+        real(mytype) :: bodyVelocity(3), normal(3), residual, correction_mag
+        real(mytype) :: normal_axis_abs
+
+        call CalculatePointVelocity_Multi(point, bodyVelocity)
+        call EllipsoidNormal_Multi(point, normal)
+        correction = zero
+        sample_weight = zero
+        normal_axis_abs = abs(normal(axis))
+
+        if (axis.ne.dominant_normal_axis(normal)) return
+        if (normal_axis_abs.le.zero) return
+
+        sample_weight = projected_area / normal_axis_abs
+
+        residual = sum((velocity - bodyVelocity) * normal)
+        correction = -relax * residual * normal
+        correction_mag = sqrt(sum(correction * correction))
+
+        residual_max = max(residual_max, abs(residual))
+        residual_sum2 = residual_sum2 + sample_weight * residual * residual
+        correction_max = max(correction_max, correction_mag)
+        correction_sum2 = correction_sum2 + sample_weight * correction_mag * correction_mag
+        weight_sum = weight_sum + sample_weight
+        count = count + 1
+    end subroutine accumulate_lagrange_sample
+
+    integer function dominant_normal_axis(normal)
+        implicit none
+        real(mytype), intent(in) :: normal(3)
+        real(mytype) :: ax, ay, az
+
+        ax = abs(normal(1))
+        ay = abs(normal(2))
+        az = abs(normal(3))
+
+        if (ax.ge.ay .and. ax.ge.az) then
+           dominant_normal_axis = 1
+        elseif (ay.ge.ax .and. ay.ge.az) then
+           dominant_normal_axis = 2
+        else
+           dominant_normal_axis = 3
+        endif
+    end function dominant_normal_axis
+
+    subroutine apply_lagrange_corrections_x(ux, uy, uz, cx, cy, cz, ccount)
+        implicit none
+        real(mytype), intent(inout), dimension(:,:,:) :: ux, uy, uz
+        real(mytype), intent(in), dimension(:,:,:) :: cx, cy, cz, ccount
+        integer :: i, j, k
+
+        do k = 1, size(ux,3)
+           do j = 1, size(ux,2)
+              do i = 1, size(ux,1)
+                 if (ccount(i,j,k).gt.zero) then
+                    ux(i,j,k) = ux(i,j,k) + cx(i,j,k) / ccount(i,j,k)
+                    uy(i,j,k) = uy(i,j,k) + cy(i,j,k) / ccount(i,j,k)
+                    uz(i,j,k) = uz(i,j,k) + cz(i,j,k) / ccount(i,j,k)
+                 endif
+              enddo
+           enddo
+        enddo
+    end subroutine apply_lagrange_corrections_x
+
+    subroutine apply_lagrange_corrections_y(ux, uy, uz, cx, cy, cz, ccount)
+        implicit none
+        real(mytype), intent(inout), dimension(:,:,:) :: ux, uy, uz
+        real(mytype), intent(in), dimension(:,:,:) :: cx, cy, cz, ccount
+        integer :: i, j, k
+
+        do k = 1, size(ux,3)
+           do j = 1, size(ux,2)
+              do i = 1, size(ux,1)
+                 if (ccount(i,j,k).gt.zero) then
+                    ux(i,j,k) = ux(i,j,k) + cx(i,j,k) / ccount(i,j,k)
+                    uy(i,j,k) = uy(i,j,k) + cy(i,j,k) / ccount(i,j,k)
+                    uz(i,j,k) = uz(i,j,k) + cz(i,j,k) / ccount(i,j,k)
+                 endif
+              enddo
+           enddo
+        enddo
+    end subroutine apply_lagrange_corrections_y
+
+    subroutine apply_lagrange_corrections_z(ux, uy, uz, cx, cy, cz, ccount)
+        implicit none
+        real(mytype), intent(inout), dimension(:,:,:) :: ux, uy, uz
+        real(mytype), intent(in), dimension(:,:,:) :: cx, cy, cz, ccount
+        integer :: i, j, k
+
+        do k = 1, size(ux,3)
+           do j = 1, size(ux,2)
+              do i = 1, size(ux,1)
+                 if (ccount(i,j,k).gt.zero) then
+                    ux(i,j,k) = ux(i,j,k) + cx(i,j,k) / ccount(i,j,k)
+                    uy(i,j,k) = uy(i,j,k) + cy(i,j,k) / ccount(i,j,k)
+                    uz(i,j,k) = uz(i,j,k) + cz(i,j,k) / ccount(i,j,k)
+                 endif
+              enddo
+           enddo
+        enddo
+    end subroutine apply_lagrange_corrections_z
+
+    real(mytype) function y_velocity_coord(jloc)
+        integer, intent(in) :: jloc
+        integer :: jglob
+
+        jglob = xstart(2) + jloc - 1
+        if (istret.eq.0) then
+           y_velocity_coord = real(jglob-1, mytype) * dy
+        else
+           y_velocity_coord = yp(jglob)
+        endif
+    end function y_velocity_coord
+
+    real(mytype) function z_velocity_coord(kloc)
+        integer, intent(in) :: kloc
+        z_velocity_coord = real(xstart(3)+kloc-2, mytype) * dz
+    end function z_velocity_coord
+
+    real(mytype) function x_y_pencil_coord(iloc)
+        integer, intent(in) :: iloc
+        x_y_pencil_coord = real(ystart(1)+iloc-2, mytype) * dx
+    end function x_y_pencil_coord
+
+    real(mytype) function z_y_pencil_coord(kloc)
+        integer, intent(in) :: kloc
+        z_y_pencil_coord = real(ystart(3)+kloc-2, mytype) * dz
+    end function z_y_pencil_coord
+
+    real(mytype) function x_z_pencil_coord(iloc)
+        integer, intent(in) :: iloc
+        x_z_pencil_coord = real(zstart(1)+iloc-2, mytype) * dx
+    end function x_z_pencil_coord
+
+    real(mytype) function y_z_pencil_coord(jloc)
+        integer, intent(in) :: jloc
+        integer :: jglob
+
+        jglob = zstart(2) + jloc - 1
+        if (istret.eq.0) then
+           y_z_pencil_coord = real(jglob-1, mytype) * dy
+        else
+           y_z_pencil_coord = yp(jglob)
+        endif
+    end function y_z_pencil_coord
+
+    integer function lower_velocity_y_index(ypos)
+        real(mytype), intent(in) :: ypos
+        integer :: jj
+
+        lower_velocity_y_index = 1
+        do jj = 1, size(yp)
+           if (yp(jj).lt.ypos) lower_velocity_y_index = jj
+        enddo
+    end function lower_velocity_y_index
+
+    integer function upper_velocity_y_index(ypos)
+        real(mytype), intent(in) :: ypos
+        integer :: jj
+
+        upper_velocity_y_index = size(yp)
+        do jj = 1, size(yp)
+           if (yp(jj).gt.ypos) then
+              upper_velocity_y_index = jj
+              return
+           endif
+        enddo
+    end function upper_velocity_y_index
+
+end subroutine ellipsoid_lagrange_projection_step
+
+!********************************************************************
+subroutine ellipsoid_pressure_grid_diagnostic(stage)
+
+    use ibm_param, only : nbody, shape, ra, cube_flag, ellipsoid_pressure_geometry_diag
+    use variables, only : xpi, ypi, zpi, yp, nxm, nym, nzm, ny, ilist
+    use param, only : zero, one, two, three, four, dx, dy, dz, pi, itime, ifirst, ilast, itr, xnu, istret
+    use var, only : t, nzmsize
+    use decomp_2d_mpi, only : nrank
+    use MPI
+
+    implicit none
+
+    character(len=*), intent(in) :: stage
+
+    integer :: i, j, k, ibody, code, iunit
+    integer :: local_solid_count, global_solid_count
+    integer :: local_fluid_count, global_fluid_count
+    integer :: local_cut_x, local_cut_y, local_cut_z
+    integer :: global_cut_x, global_cut_y, global_cut_z
+    logical :: inside_here, inside_next, file_exists, sphere_geometry
+    real(mytype) :: point(3), next_point(3), local_normal(3), global_normal(3)
+    real(mytype) :: local_area, global_area, local_volume, global_volume
+    real(mytype) :: cell_dy, face_area, normal_sign, normal_closure
+    real(mytype) :: analytic_volume, analytic_sphere_area, radius
+    real(mytype) :: volume_error
+
+    if (ellipsoid_pressure_geometry_diag.eq.0) return
+    if (.not.(mod(itime,ilist).eq.0 .or. itime.eq.ifirst .or. itime.eq.ilast)) return
+
+    local_solid_count = 0
+    local_fluid_count = 0
+    local_cut_x = 0
+    local_cut_y = 0
+    local_cut_z = 0
+    local_area = zero
+    local_volume = zero
+    local_normal = zero
+
+    do k = 1, nzmsize
+       do j = ph1%zst(2), ph1%zen(2)
+          cell_dy = pressure_cell_dy(j)
+          do i = ph1%zst(1), ph1%zen(1)
+             point = [xpi(i), ypi(j), zpi(k)]
+             inside_here = ellipsoid_pressure_point_inside(point)
+
+             if (inside_here) then
+                local_solid_count = local_solid_count + 1
+                local_volume = local_volume + dx * cell_dy * dz
+             else
+                local_fluid_count = local_fluid_count + 1
+             endif
+
+             if (i.lt.nxm) then
+                next_point = [xpi(i+1), ypi(j), zpi(k)]
+                inside_next = ellipsoid_pressure_point_inside(next_point)
+                if (inside_here.neqv.inside_next) then
+                   local_cut_x = local_cut_x + 1
+                   face_area = cell_dy * dz
+                   normal_sign = merge(one, -one, inside_here)
+                   local_area = local_area + face_area
+                   local_normal(1) = local_normal(1) + normal_sign * face_area
+                endif
+             endif
+
+             if (j.lt.nym) then
+                next_point = [xpi(i), ypi(j+1), zpi(k)]
+                inside_next = ellipsoid_pressure_point_inside(next_point)
+                if (inside_here.neqv.inside_next) then
+                   local_cut_y = local_cut_y + 1
+                   face_area = dx * dz
+                   normal_sign = merge(one, -one, inside_here)
+                   local_area = local_area + face_area
+                   local_normal(2) = local_normal(2) + normal_sign * face_area
+                endif
+             endif
+
+             if (k.lt.nzm) then
+                next_point = [xpi(i), ypi(j), zpi(k+1)]
+                inside_next = ellipsoid_pressure_point_inside(next_point)
+                if (inside_here.neqv.inside_next) then
+                   local_cut_z = local_cut_z + 1
+                   face_area = dx * cell_dy
+                   normal_sign = merge(one, -one, inside_here)
+                   local_area = local_area + face_area
+                   local_normal(3) = local_normal(3) + normal_sign * face_area
+                endif
+             endif
+          enddo
+       enddo
+    enddo
+
+    global_solid_count = local_solid_count
+    global_fluid_count = local_fluid_count
+    global_cut_x = local_cut_x
+    global_cut_y = local_cut_y
+    global_cut_z = local_cut_z
+    global_area = local_area
+    global_volume = local_volume
+    global_normal = local_normal
+
+    call MPI_Allreduce(MPI_IN_PLACE, global_solid_count, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_fluid_count, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_cut_x, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_cut_y, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_cut_z, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_area, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_volume, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_normal, 3, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+
+    analytic_volume = zero
+    analytic_sphere_area = zero
+    sphere_geometry = (cube_flag.eq.0)
+    if (cube_flag.eq.0) then
+       do ibody = 1, nbody
+          analytic_volume = analytic_volume + four*pi/three * &
+               (ra(ibody)*shape(ibody,1)) * (ra(ibody)*shape(ibody,2)) * &
+               (ra(ibody)*shape(ibody,3))
+          if (abs(shape(ibody,1)-shape(ibody,2)).gt.1.0e-10_mytype .or. &
+               abs(shape(ibody,1)-shape(ibody,3)).gt.1.0e-10_mytype) then
+             sphere_geometry = .false.
+          endif
+          radius = ra(ibody) * shape(ibody,1)
+          analytic_sphere_area = analytic_sphere_area + four*pi*radius*radius
+       enddo
+    endif
+
+    normal_closure = zero
+    if (global_area.gt.zero) normal_closure = sqrt(sum(global_normal*global_normal)) / global_area
+    volume_error = zero
+    if (analytic_volume.gt.zero) volume_error = (global_volume - analytic_volume) / analytic_volume
+
+    if (nrank.eq.0) then
+       write(*,*) "Ellipsoid pressure-grid geometry ", trim(stage), &
+            ": solid/fluid=", global_solid_count, global_fluid_count, &
+            " cut xyz=", global_cut_x, global_cut_y, global_cut_z, &
+            " area=", global_area, " normal_closure=", normal_closure, &
+            " volume=", global_volume, " volume_error=", volume_error
+
+       inquire(file="ellipsoid_pressure_grid_geometry.dat", exist=file_exists)
+       open(newunit=iunit, file="ellipsoid_pressure_grid_geometry.dat", status="unknown", position="append")
+       if (.not. file_exists) then
+          write(iunit,*) "# t itime itr stage solid_cells fluid_cells cut_x cut_y cut_z ", &
+               "stair_area normal_x normal_y normal_z normal_closure volume analytic_volume ", &
+               "volume_rel_error sphere_area_or_zero xnu"
+       endif
+       if (.not.sphere_geometry) analytic_sphere_area = zero
+       write(iunit,*) t, itime, itr, trim(stage), global_solid_count, global_fluid_count, &
+            global_cut_x, global_cut_y, global_cut_z, global_area, global_normal(1), &
+            global_normal(2), global_normal(3), normal_closure, global_volume, &
+            analytic_volume, volume_error, analytic_sphere_area, xnu
+       close(iunit)
+    endif
+
+contains
+
+    real(mytype) function pressure_cell_dy(jglob)
+        integer, intent(in) :: jglob
+
+        if (istret.eq.0) then
+           pressure_cell_dy = dy
+        elseif (jglob.ge.1 .and. jglob.lt.ny) then
+           pressure_cell_dy = yp(jglob+1) - yp(jglob)
+        else
+           pressure_cell_dy = dy
+        endif
+    end function pressure_cell_dy
+
+end subroutine ellipsoid_pressure_grid_diagnostic
+
+!********************************************************************
+logical function ellipsoid_pressure_point_inside(point)
+
+    use ellipsoid_utils, only : EllipsoidalRadius
+    use ibm_param, only : nbody, position, orientation, shape, ra, cube_flag
+    implicit none
+
+    real(mytype), intent(in) :: point(3)
+
+    integer :: ibody
+    real(mytype) :: r
+
+    ellipsoid_pressure_point_inside = .false.
+    do ibody = 1, nbody
+       if (cube_flag.eq.0) then
+          call EllipsoidalRadius(point, position(ibody,:), orientation(ibody,:), shape(ibody,:), r)
+          if (r.le.ra(ibody)) then
+             ellipsoid_pressure_point_inside = .true.
+             return
+          endif
+       else if (cube_flag.eq.1) then
+          if (abs(point(1)-position(ibody,1)).le.ra(ibody) .and. &
+               abs(point(2)-position(ibody,2)).le.ra(ibody) .and. &
+               abs(point(3)-position(ibody,3)).le.ra(ibody)) then
+             ellipsoid_pressure_point_inside = .true.
+             return
+          endif
+       endif
+    enddo
+
+end function ellipsoid_pressure_point_inside
+
+!********************************************************************
 subroutine accumulate_ellipsoid_bc_sample(point, nearestVelocity, normal_max, &
      normal_sum2, full_max, full_sum2, count)
 
@@ -1527,6 +2372,128 @@ subroutine accumulate_ellipsoid_bc_sample(point, nearestVelocity, normal_max, &
     count = count + 1
 
 end subroutine accumulate_ellipsoid_bc_sample
+
+!********************************************************************
+subroutine ellipsoid_projection_flux_source(point, velocity, normal, projected_area, cell_volume, &
+     source, normal_flux)
+
+    use param, only : zero
+    use ellipsoid_utils, only : CalculatePointVelocity_Multi
+
+    implicit none
+
+    real(mytype), intent(in) :: point(3), velocity(3), normal(3)
+    real(mytype), intent(in) :: projected_area, cell_volume
+    real(mytype), intent(out) :: source, normal_flux
+
+    real(mytype) :: bodyVelocity(3), normal_abs_sum
+
+    call CalculatePointVelocity_Multi(point, bodyVelocity)
+
+    normal_flux = sum((velocity - bodyVelocity) * normal)
+    normal_abs_sum = abs(normal(1)) + abs(normal(2)) + abs(normal(3))
+
+    source = zero
+    if (normal_abs_sum.gt.zero .and. cell_volume.gt.zero) then
+       source = normal_flux * projected_area / (normal_abs_sum * cell_volume)
+    endif
+
+end subroutine ellipsoid_projection_flux_source
+
+!********************************************************************
+subroutine accumulate_projection_flux_stats(source, normal_flux, count, flux_sum2, flux_max, source_sum)
+
+    implicit none
+
+    real(mytype), intent(in) :: source, normal_flux
+    integer, intent(inout) :: count
+    real(mytype), intent(inout) :: flux_sum2, flux_max, source_sum
+
+    count = count + 1
+    flux_sum2 = flux_sum2 + normal_flux * normal_flux
+    flux_max = max(flux_max, abs(normal_flux))
+    source_sum = source_sum + source
+
+end subroutine accumulate_projection_flux_stats
+
+!********************************************************************
+subroutine report_projection_flux_stats(axis, local_count, local_flux_sum2, local_flux_max, &
+     local_source_sum, global_count, global_flux_sum2, global_flux_max, global_source_sum)
+
+    use param, only : zero, itime, ifirst, ilast
+    use variables, only : ilist
+    use var, only : t
+    use decomp_2d_mpi, only : nrank
+    use MPI
+
+    implicit none
+
+    character(len=*), intent(in) :: axis
+    integer, intent(in) :: local_count
+    real(mytype), intent(in) :: local_flux_sum2, local_flux_max, local_source_sum
+    integer, intent(out) :: global_count
+    real(mytype), intent(out) :: global_flux_sum2, global_flux_max, global_source_sum
+
+    integer :: code, iunit
+    logical :: file_exists
+    real(mytype) :: flux_rms
+
+    global_count = local_count
+    global_flux_sum2 = local_flux_sum2
+    global_flux_max = local_flux_max
+    global_source_sum = local_source_sum
+
+    call MPI_Allreduce(MPI_IN_PLACE, global_count, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_flux_sum2, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_flux_max, 1, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+    call MPI_Allreduce(MPI_IN_PLACE, global_source_sum, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+
+    flux_rms = zero
+    if (global_count.gt.0) flux_rms = sqrt(global_flux_sum2 / real(global_count, mytype))
+
+    if (nrank.eq.0 .and. (mod(itime,ilist).eq.0 .or. itime.eq.ifirst .or. itime.eq.ilast)) then
+       write(*,*) "Ellipsoid projection flux RHS axis=", trim(axis), &
+            " samples=", global_count, " flux max/rms=", global_flux_max, flux_rms, &
+            " source_sum=", global_source_sum
+
+       inquire(file="ellipsoid_projection_flux_rhs.dat", exist=file_exists)
+       open(newunit=iunit, file="ellipsoid_projection_flux_rhs.dat", status="unknown", position="append")
+       if (.not. file_exists) then
+          write(iunit,*) "# t itime axis samples flux_max flux_rms source_sum"
+       endif
+       write(iunit,*) t, itime, trim(axis), global_count, global_flux_max, flux_rms, global_source_sum
+       close(iunit)
+    endif
+
+end subroutine report_projection_flux_stats
+
+!********************************************************************
+integer function locate_pressure_y(ypos)
+
+    use param, only : zero
+    use variables, only : yp
+    use var, only : nymsize
+
+    implicit none
+
+    real(mytype), intent(in) :: ypos
+    integer :: j
+
+    locate_pressure_y = -1
+    if (ypos.lt.yp(1)) return
+
+    do j = 1, nymsize
+       if (j.lt.size(yp)) then
+          if (ypos.ge.yp(j) .and. ypos.lt.yp(j+1)) then
+             locate_pressure_y = j
+             return
+          endif
+       endif
+    enddo
+
+    if (nymsize.ge.1 .and. ypos.ge.yp(nymsize)) locate_pressure_y = nymsize
+
+end function locate_pressure_y
 
 !********************************************************************
 subroutine accumulate_ellipsoid_pressure_sample(point, nearestVelocity, pressureCorrection, &

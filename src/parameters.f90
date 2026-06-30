@@ -73,7 +73,9 @@ subroutine parameter(input_i3d)
       nobjmax,nraf,nvol,iforces, cvl_scalar, npif, izap, ianal, imove, thickness, chord, omega , &
       ubcx,ubcy,ubcz,rads,rho_s, c_air, grav_x,grav_y,grav_z, nozdrift, force_csv, bodies_fixed, cube_flag, tconv2_sign, &
       torques_flag, orientations_free, shear_flow_ybc, shear_flow_zbc, shear_velocity, torq_debug, torq_flip, ztorq_only, nbody, &
-      inviscid_output, div_visu_flag, ellipsoid_init_potential, ellipsoid_projection_slip_fix
+      inviscid_output, div_visu_flag, ellipsoid_init_potential, ellipsoid_projection_slip_fix, ellipsoid_projection_flux_fix, &
+      ellipsoid_pressure_geometry_diag, ellipsoid_lagrange_projection_steps, ellipsoid_lagrange_projection_relax, &
+      ellipsoid_schur_projection_iters, ellipsoid_schur_projection_relax, ellipsoid_schur_projection_tol
   NAMELIST /ForceCVs/ xld, xrd, yld, yud, zld, zrd
   NAMELIST /LMN/ dens1, dens2, prandtl, ilmn_bound, ivarcoeff, ilmn_solve_temp, &
        massfrac, mol_weight, imultispecies, primary_species, &
@@ -792,6 +794,13 @@ subroutine parameter_defaults()
   div_visu_flag=0
   ellipsoid_init_potential=0
   ellipsoid_projection_slip_fix=0
+  ellipsoid_projection_flux_fix=0
+  ellipsoid_pressure_geometry_diag=0
+  ellipsoid_lagrange_projection_steps=0
+  ellipsoid_lagrange_projection_relax=one
+  ellipsoid_schur_projection_iters=0
+  ellipsoid_schur_projection_relax=one
+  ellipsoid_schur_projection_tol=1.0e-6_mytype
   ra(:) = 1.0
 
   !! Gravity field
