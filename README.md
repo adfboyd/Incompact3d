@@ -48,5 +48,7 @@ Documentation
 
 [Readthedocs](https://xcompact3d.readthedocs.io/en/latest/)
 
+For practical build and run commands, including the ellipsoid example, see
+[RUNNING.md](RUNNING.md).
 
 
