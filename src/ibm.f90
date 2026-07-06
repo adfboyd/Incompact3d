@@ -438,9 +438,9 @@ subroutine cubsplx(u,lind)
   end if
   
   do k=1,xsize(3)
-   zm=real(xstart(3)+k-1,mytype)*dz
+   zm=real(xstart(3)+k-2,mytype)*dz
      do j=1,xsize(2)
-      ym=real(xstart(2)+j-1,mytype)*dy
+      ym=real(xstart(2)+j-2,mytype)*dy
         if(nobjx(j,k).ne.0)then
            ia=0
            do i=1,nobjx(j,k)          
@@ -635,9 +635,9 @@ subroutine cubsply(u,lind)
   endif
   !
   do k=1,ysize(3)
-   zm=real(ystart(3)+k-1,mytype)*dz
+   zm=real(ystart(3)+k-2,mytype)*dz
      do i=1,ysize(1)
-      xm=real(ystart(1)+i-1,mytype)*dx
+      xm=real(ystart(1)+i-2,mytype)*dx
         if(nobjy(i,k).ne.0)then
            ia=0
            do j=1,nobjy(i,k)
@@ -823,9 +823,9 @@ subroutine cubsplz(u,lind)
   end if  
   !
   do j=1,zsize(2)
-   ym=real(zstart(2)+j-1,mytype)*dy
+   ym=real(zstart(2)+j-2,mytype)*dy
      do i=1,zsize(1)
-      xm=real(zstart(1)+i-1,mytype)*dx
+      xm=real(zstart(1)+i-2,mytype)*dx
         if(nobjz(i,j).ne.0)then
            ia=0
            do k=1,nobjz(i,j)          
@@ -888,7 +888,7 @@ subroutine cubsplz(u,lind)
                  !call analitic_z(i,zf(k,i,j),ana_resf,j) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
               endif
-              zm = zi(k,i,j)
+              zm = zf(k,i,j)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
 

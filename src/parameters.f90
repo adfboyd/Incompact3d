@@ -790,6 +790,21 @@ subroutine parameter_defaults()
   inviscid_output=0
   div_visu_flag=0
   ra(:) = 1.0
+  ! Legacy sign-fudge flags: no longer used by torque_calc (all torque terms
+  ! now share one consistent r x F convention). Kept in the namelist for
+  ! input-file compatibility; explicitly zeroed since they were never defaulted.
+  tconv2_sign=zero
+  torq_flip=0
+  torq_debug=0
+  ztorq_only=0
+  torques_flag=0
+  orientations_free=0
+  bodies_fixed=0
+  cube_flag=0
+  shear_flow_ybc=0
+  shear_flow_zbc=0
+  shear_velocity=zero
+  imove=0
 
   !! Gravity field
   gravx = zero

@@ -210,12 +210,13 @@ contains
 
       call QuaternionConjugate(orientation, orientation_c)
 
-      !rotate point into body frame (using inverse(conjugate) of orientation)
-      call RotatePoint(trans_point, orientation, rotated_point)
+      !rotate point into body frame. orientation q maps body->lab
+      !(v_lab = q v_body q*), so lab->body uses the conjugate.
+      call RotatePoint(trans_point, orientation_c, rotated_point)
 
       do i = 1,3
          scaled_point(i)=rotated_point(i)/shape(i)
-      end do 
+      end do
 
       radius=sqrt(scaled_point(1)**2+scaled_point(2)**2+scaled_point(3)**2)
 
@@ -250,7 +251,7 @@ contains
     write(*,*) "Orientation inverse = ", orientation_c
 
     !rotate point into body frame (using inverse(conjugate) of orientation)
-    call RotatePoint(trans_point, orientation, rotated_point)
+    call RotatePoint(trans_point, orientation_c, rotated_point)
 
     write(*,*) "Rotated point = ", rotated_point
     do i = 1,3
@@ -292,12 +293,11 @@ contains
     ! Compute the distance vector from the center to the point
     real(mytype) :: distance(3)
     distance = point - center
-  
-    ! Compute the cross product of angular velocity and distance vector
-    
-    call CrossProduct(distance, angularVelocity(2:4), crossed)
 
-  
+    ! Rigid-body surface velocity: v = v_lin + omega x r
+    call CrossProduct(angularVelocity(2:4), distance, crossed)
+
+
     ! Calculate the velocity at the point
     pointVelocity = crossed + linearVelocity
   end subroutine CalculatePointVelocity

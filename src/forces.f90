@@ -621,11 +621,11 @@ contains
           tsumx=zero
           tsumy=zero
           tsumz=zero
-          zm=real(xstart(3)+k-1,mytype)*dz
+          zm=real(xstart(3)+k-2,mytype)*dz
           do j=jcvlw_lx(iv),jcvup_lx(iv)
-            ym=real(xstart(2)+j-1,mytype)*dy
+            ym=yp(j+xstart(2)-1)
              do i=icvlf_lx(iv),icvrt_lx(iv)
-               xm=real(xstart(1)+i-1,mytype)*dx
+               xm=real(xstart(1)+i-2,mytype)*dx
 
                ! Time-derivative term (BDF2 stencil on lab-frame velocity)
                fac1   = (onepfive*ux1(i,j,k)-two*ux01(i,j,k)+half*ux11(i,j,k))*(one-ep1(i,j,k))
@@ -710,10 +710,10 @@ contains
        if ((jcvlw(iv).ge.xstart(2)).and.(jcvlw(iv).le.xend(2))) then
           j=jcvlw(iv)-xstart(2)+1
           jj=jcvlw(iv)
-          ym=real(jj,mytype)*dy
+          ym=yp(jj)
           do k=zcvlf_lx(iv),zcvrt_lx(iv)
              kk=xstart(3)-1+k
-             zm=real(kk,mytype)*dz
+             zm=real(kk-1,mytype)*dz
              fcvx=zero
              fcvy=zero
              fcvz=zero
@@ -724,7 +724,7 @@ contains
              do i=icvlf_lx(iv),icvrt_lx(iv)-1
 
                 ii=xstart(1)+i-1
-                xm=real(ii,mytype)*dx
+                xm=(real(ii,mytype)-half)*dx
                !  write(*,*) 'Calculating force at upper y boundary', [xm,ym,zm]
 
                 !momentum flux
@@ -769,10 +769,10 @@ contains
        if ((jcvup(iv).ge.xstart(2)).and.(jcvup(iv).le.xend(2))) then
           j=jcvup(iv)-xstart(2)+1
           jj=jcvup(iv)
-          ym=real(jj,mytype)*dy
+          ym=yp(jj)
           do k=zcvlf_lx(iv),zcvrt_lx(iv)
              kk=xstart(3)-1+k
-             zm=real(kk,mytype)*dz
+             zm=real(kk-1,mytype)*dz
              fcvx=zero
              fcvy=zero
              fcvz=zero
@@ -782,7 +782,7 @@ contains
              fdiz=zero
              do i=icvlf_lx(iv),icvrt_lx(iv)-1
                ii=xstart(1)+i-1
-               xm=real(ii,mytype)*dx
+               xm=(real(ii,mytype)-half)*dx
                ! write(*,*) 'xm = ', xm
                ! write(*,*) 'Calculating force at lower y boundary', [xm,ym,zm]
 
@@ -828,11 +828,11 @@ contains
        !AB
        if ((icvlf(iv).ge.ystart(1)).and.(icvlf(iv).le.yend(1))) then
           i=icvlf(iv)-ystart(1)+1
-          ii=icvlf(iv)-1
-          xm=real(ii,mytype)*dx
+          ii=icvlf(iv)
+          xm=real(ii-1,mytype)*dx
           do k=zcvlf_ly(iv),zcvrt_ly(iv)
              kk=ystart(3)+k-1
-             zm=real(kk,mytype)*dz
+             zm=real(kk-1,mytype)*dz
              fcvx=zero
              fcvy=zero
              fcvz=zero
@@ -843,7 +843,7 @@ contains
              do j=jcvlw_ly(iv),jcvup_ly(iv)-1
 
                 jj=ystart(2)+j-1
-                ym=real(jj,mytype)*dy
+                ym=half*(yp(jj)+yp(jj+1))
                !  write(*,*) 'Calculating force at left x boundary', [xm,ym,zm]
                 !momentum flux
                 call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
@@ -887,10 +887,10 @@ contains
        if ((icvrt(iv).ge.ystart(1)).and.(icvrt(iv).le.yend(1))) then
           i=icvrt(iv)-ystart(1)+1
           ii=icvrt(iv)
-          xm=real(ii,mytype)*dx
+          xm=real(ii-1,mytype)*dx
           do k=zcvlf_ly(iv),zcvrt_ly(iv)
              kk=ystart(3)-1+k
-             zm=real(kk,mytype)*dz
+             zm=real(kk-1,mytype)*dz
              fcvx=zero
              fcvy=zero
              fcvz=zero
@@ -898,9 +898,9 @@ contains
              fdix=zero
              fdiy=zero
              fdiz=zero
-             do j=jcvlw_ly(iv),jcvup_ly(iv)-1 !!!What's going on here?
+             do j=jcvlw_ly(iv),jcvup_ly(iv)-1
                 jj=ystart(2)+j-1
-                ym=real(jj,mytype)*dy
+                ym=half*(yp(jj)+yp(jj+1))
                !  write(*,*) 'Calculating force at right x boundary', [xm,ym,zm]
 
                 !momentum flux
@@ -949,7 +949,7 @@ contains
          if ((zcvlf(iv).ge.xstart(3)).and.(zcvlf(iv).le.xend(3))) then
            k=zcvlf(iv)-xstart(3)+1
            kk=zcvlf(iv)
-           zm=real(kk,mytype)*dz
+           zm=real(kk-1,mytype)*dz
 
            fcvx=zero
            fcvy=zero
@@ -962,10 +962,10 @@ contains
             kk = xstart(2)-1+j
             jj = xstart(2)-1+j
 
-            ym=real(jj,mytype)*dy
+            ym=yp(jj)
               do i=icvlf_lx(iv),icvrt_lx(iv)-1
                  ii=xstart(1)+i-1
-                 xm=real(ii,mytype)*dx
+                 xm=(real(ii,mytype)-half)*dx
                  ! write(*,*) 'Calculating force at left z boundary', [xm,ym,zm]
 
                  !momentum flux
@@ -1011,7 +1011,7 @@ contains
         if ((zcvrt(iv).ge.xstart(3)).and.(zcvrt(iv).le.xend(3))) then
            k=zcvrt(iv)-xstart(3)+1
            kk=zcvrt(iv)
-           zm=real(kk,mytype)*dz
+           zm=real(kk-1,mytype)*dz
   !        kk=nrank+1
 
            fcvx=zero
@@ -1027,10 +1027,10 @@ contains
             ! since tconvxl2/tdiffxl2/tpreszl etc. are sized (ny) and accumulated per y-slice.
             kk = xstart(2)-1+j
             jj = xstart(2)-1+j
-            ym=real(jj,mytype)*dy
+            ym=yp(jj)
              do i=icvlf_lx(iv),icvrt_lx(iv)-1
                ii=xstart(1)+i-1
-               xm=real(ii,mytype)*dx
+               xm=(real(ii,mytype)-half)*dx
                  !momentum flux
                call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
               !  write(*,*) 'Calculating force at right z boundary', [xm,ym,zm]
@@ -1242,6 +1242,7 @@ contains
    real(mytype) :: mom1, mom2, mom3, tp1, tp2, tp3
    real(mytype) :: radial(3),angular_velocity_result(3)
    real(mytype) :: u_rel(3), r_vec(3), dV_cell, pseudo_force(3), pseudo_torque(3)
+   real(mytype) :: fvec(3), cross_tmp(3), dA
 
   !  write(*,*) 'Inside FORCE'
 
@@ -1330,6 +1331,9 @@ contains
       !         of the cell falls inside the body the cell is
       !         excluded.
 
+      ! All torque terms below use the SAME convention: r x F (angular momentum
+      ! about the body centre), mirroring force() term by term. The body torque
+      ! is then  T = tdiff + tpres - (tunst + tconv),  exactly like force().
       tunstxl=zero
       tunstyl=zero
       tunstzl=zero
@@ -1337,11 +1341,11 @@ contains
          tsumx=zero
          tsumy=zero
          tsumz=zero
-         zm=real(xstart(3)+k-1,mytype)*dz
+         zm=real(xstart(3)+k-2,mytype)*dz
          do j=jcvlw_lx(iv),jcvup_lx(iv)
-           ym=real(xstart(2)+j-1,mytype)*dy
+           ym=yp(j+xstart(2)-1)
             do i=icvlf_lx(iv),icvrt_lx(iv)
-              xm=real(xstart(1)+i-1,mytype)*dx
+              xm=real(xstart(1)+i-2,mytype)*dx
 
               ! Time-derivative term (BDF2 stencil on lab-frame velocity)
               fac1   = (onepfive*ux1(i,j,k)-two*ux01(i,j,k)+half*ux11(i,j,k))*(one-ep1(i,j,k))
@@ -1349,10 +1353,10 @@ contains
               fac3   = (onepfive*uz1(i,j,k)-two*uz01(i,j,k)+half*uz11(i,j,k))*(one-ep1(i,j,k))
 
               r_vec   = [xm,ym,zm] - position(iv,:)
-              dV_cell = dx*del_y(j+(xstart(2)-1))*dz
+              dV_cell = dx*del_y(min(ny-1,j+(xstart(2)-1)))*dz
 
-              ! Torque contribution from the volume time-derivative term: (∂u/∂t) × r
-              call crossProduct([fac1,fac2,fac3], r_vec, angular_velocity_result)
+              ! Torque contribution from the volume time-derivative term: r × (∂u/∂t)
+              call crossProduct(r_vec, [fac1,fac2,fac3], angular_velocity_result)
               tsumx = tsumx + angular_velocity_result(1)*dV_cell/dt
               tsumy = tsumy + angular_velocity_result(2)*dV_cell/dt
               tsumz = tsumz + angular_velocity_result(3)*dV_cell/dt
@@ -1372,8 +1376,8 @@ contains
               pseudo_force(1) = coriolis(1) - centrifugal(1)
               pseudo_force(2) = coriolis(2) - centrifugal(2)
               pseudo_force(3) = coriolis(3) - centrifugal(3)
-              ! Torque contribution: pseudo_force × r (same sign convention as ∂u/∂t × r above)
-              call crossProduct(pseudo_force, r_vec, pseudo_torque)
+              ! Torque contribution: r × pseudo_force (same convention as r × ∂u/∂t above)
+              call crossProduct(r_vec, pseudo_force, pseudo_torque)
               tsumx = tsumx + pseudo_torque(1)*(one-ep1(i,j,k))*dV_cell
               tsumy = tsumy + pseudo_torque(2)*(one-ep1(i,j,k))*dV_cell
               tsumz = tsumz + pseudo_torque(3)*(one-ep1(i,j,k))*dV_cell
@@ -1427,14 +1431,14 @@ contains
       tdiffyl2=zero
       tdiffzl2=zero
       !BC and AD : x-pencils
-      !AD
+      !AD (lower y face, outward normal n = -yhat)
       if ((jcvlw(iv).ge.xstart(2)).and.(jcvlw(iv).le.xend(2))) then
          j=jcvlw(iv)-xstart(2)+1
          jj=jcvlw(iv)
-         ym=real(jj,mytype)*dy
+         ym=yp(jj)
          do k=zcvlf_lx(iv),zcvrt_lx(iv)
             kk=xstart(3)-1+k
-            zm=real(kk,mytype)*dz
+            zm=real(kk-1,mytype)*dz
             fcvx=zero
             fcvy=zero
             fcvz=zero
@@ -1447,42 +1451,40 @@ contains
             do i=icvlf_lx(iv),icvrt_lx(iv)-1
 
                ii=xstart(1)+i-1
-               xm=real(ii,mytype)*dx
-              !  write(*,*) 'Calculating force at upper y boundary', [xm,ym,zm]
+               xm=(real(ii,mytype)-half)*dx   ! midpoint between nodes ii and ii+1
                radial = [xm,ym,zm]-position(iv,:)
+               dA = dx*dz
 
-               !momentum flux
-               call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
+               !momentum flux: (u.n)(r x u) dA, n=-yhat -> (u.n)=-uymid
+               call crossProduct(angularVelocity(iv,2:4),radial,rotationalComponent)
                uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
                uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
                uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
-               fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uymid*dx*dz
-               fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uymid*dx*dz
-               fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uymid*dx*dz
+               call crossProduct(radial,[uxmid,uymid,uzmid],cross_tmp)
+               fcvx = fcvx - uymid*cross_tmp(1)*dA
+               fcvy = fcvy - uymid*cross_tmp(2)*dA
+               fcvz = fcvz - uymid*cross_tmp(3)*dA
 
-
-               !pressure
+               !pressure: r x (-p n) dA, n=-yhat -> F_p = +p yhat
                prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
-               ! fpry  = fpry +prmid*dx*dz*(radial(1)-radial(3))
-               fprz = fprz +prmid*dx*dz*(radial(1))
-               fprx = fprx +prmid*dx*dz*(-radial(3))
+               call crossProduct(radial,[zero,prmid,zero],cross_tmp)
+               fprx = fprx + cross_tmp(1)*dA
+               fpry = fpry + cross_tmp(2)*dA
+               fprz = fprz + cross_tmp(3)*dA
 
-               !viscous term
+               !viscous: r x (tau.n) dA, n=-yhat -> F_v = -(tau_xy,tau_yy,tau_zy)
                dudymid = half*(tc1(i,j,k)+tc1(i+1,j,k))
                dvdxmid = half*(tb1(i,j,k)+tb1(i+1,j,k))
                dvdymid = half*(td1(i,j,k)+td1(i+1,j,k))
                dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
                dvdzmid = half*(th1(i,j,k)+th1(i+1,j,k))
 
-               fdix = fdix - (xnu*(two*dvdymid)*radial(3)-xnu*(dwdymid+dvdzmid)*radial(2))*dx*dz
-               fdiy = fdiy - (xnu*(dwdymid+dvdzmid)*radial(1)-xnu*(dudymid+dvdxmid)*radial(3))*dx*dz
-               fdiz = fdiz - (xnu*(dudymid+dvdxmid)*radial(2)-xnu*(two*dvdymid)*radial(1))*dx*dz
-
-               ! fdix    = fdix -(xnu*(dudymid+dvdxmid)*dx*dz)
-               ! fdiy    = fdiy -two*xnu*dvdymid*dx*dz
-               ! fdiz    = fdiz -(xnu*(dwdymid+dvdzmid)*dx*dz)
-
+               fvec = [-xnu*(dudymid+dvdxmid), -two*xnu*dvdymid, -xnu*(dwdymid+dvdzmid)]
+               call crossProduct(radial,fvec,cross_tmp)
+               fdix = fdix + cross_tmp(1)*dA
+               fdiy = fdiy + cross_tmp(2)*dA
+               fdiz = fdiz + cross_tmp(3)*dA
 
             enddo
 
@@ -1491,7 +1493,7 @@ contains
             tconvzl(1)=tconvzl(1)+fcvz
 
             tpresxl(1)=tpresxl(1)+fprx
-            ! tpresyl(1)=tpresyl(1)+fpry
+            tpresyl(1)=tpresyl(1)+fpry
             tpreszl(1)=tpreszl(1)+fprz
 
             tdiffxl(1)=tdiffxl(1)+fdix
@@ -1500,14 +1502,14 @@ contains
          enddo
 
       endif
-      !BC
+      !BC (upper y face, outward normal n = +yhat)
       if ((jcvup(iv).ge.xstart(2)).and.(jcvup(iv).le.xend(2))) then
          j=jcvup(iv)-xstart(2)+1
          jj=jcvup(iv)
-         ym=real(jj,mytype)*dy
+         ym=yp(jj)
          do k=zcvlf_lx(iv),zcvrt_lx(iv)
             kk=xstart(3)-1+k
-            zm=real(kk,mytype)*dz
+            zm=real(kk-1,mytype)*dz
             fcvx=zero
             fcvy=zero
             fcvz=zero
@@ -1519,42 +1521,40 @@ contains
             fdiz=zero
             do i=icvlf_lx(iv),icvrt_lx(iv)-1
               ii=xstart(1)+i-1
-              xm=real(ii,mytype)*dx
-              ! write(*,*) 'xm = ', xm
-              ! write(*,*) 'Calculating force at lower y boundary', [xm,ym,zm]
-
-              !momentum flux
-              call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
+              xm=(real(ii,mytype)-half)*dx   ! midpoint between nodes ii and ii+1
               radial = [xm,ym,zm]-position(iv,:)
+              dA = dx*dz
+
+              !momentum flux: (u.n)(r x u) dA, n=+yhat -> (u.n)=+uymid
+              call crossProduct(angularVelocity(iv,2:4),radial,rotationalComponent)
               uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
               uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
               uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
-               fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uymid*dx*dz
-               fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uymid*dx*dz
-               fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uymid*dx*dz
+              call crossProduct(radial,[uxmid,uymid,uzmid],cross_tmp)
+              fcvx = fcvx + uymid*cross_tmp(1)*dA
+              fcvy = fcvy + uymid*cross_tmp(2)*dA
+              fcvz = fcvz + uymid*cross_tmp(3)*dA
 
+              !pressure: r x (-p n) dA, n=+yhat -> F_p = -p yhat
+              prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
+              call crossProduct(radial,[zero,-prmid,zero],cross_tmp)
+              fprx = fprx + cross_tmp(1)*dA
+              fpry = fpry + cross_tmp(2)*dA
+              fprz = fprz + cross_tmp(3)*dA
 
-               !pressure
-               prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
-               ! fpry = fpry -prmid*dx*dz*(radial(1)-radial(3))
-               fprz = fprz -prmid*dx*dz*(radial(1))
-               fprx = fprx -prmid*dx*dz*(-radial(3))
+              !viscous: r x (tau.n) dA, n=+yhat -> F_v = +(tau_xy,tau_yy,tau_zy)
+              dudymid = half*(tc1(i,j,k)+tc1(i+1,j,k))
+              dvdxmid = half*(tb1(i,j,k)+tb1(i+1,j,k))
+              dvdymid = half*(td1(i,j,k)+td1(i+1,j,k))
+              dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
+              dvdzmid = half*(th1(i,j,k)+th1(i+1,j,k))
 
-               !viscous term
-               dudymid = half*(tc1(i,j,k)+tc1(i+1,j,k))
-               dvdxmid = half*(tb1(i,j,k)+tb1(i+1,j,k))
-               dvdymid = half*(td1(i,j,k)+td1(i+1,j,k))
-               dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
-               dvdzmid = half*(th1(i,j,k)+th1(i+1,j,k))
-
-               fdix = fdix + (xnu*(two*dvdymid)*radial(3)-xnu*(dwdymid+dvdzmid)*radial(2))*dx*dz
-               fdiy = fdiy + (xnu*(dwdymid+dvdzmid)*radial(1)-xnu*(dudymid+dvdxmid)*radial(3))*dx*dz
-               fdiz = fdiz + (xnu*(dudymid+dvdxmid)*radial(2)-xnu*(two*dvdymid)*radial(1))*dx*dz
-
-               ! fdix = fdix + (xnu*(dudymid+dvdxmid)*dx*dz)
-               ! fdiy = fdiy + (xnu*(two*dvdymid)*dx*dz)
-               ! fdiz = fdiz + (xnu*(dwdymid+dvdzmid)*dx*dz)
+              fvec = [xnu*(dudymid+dvdxmid), two*xnu*dvdymid, xnu*(dwdymid+dvdzmid)]
+              call crossProduct(radial,fvec,cross_tmp)
+              fdix = fdix + cross_tmp(1)*dA
+              fdiy = fdiy + cross_tmp(2)*dA
+              fdiz = fdiz + cross_tmp(3)*dA
 
             enddo
             tconvxl(2)=tconvxl(2)+fcvx
@@ -1562,7 +1562,7 @@ contains
             tconvzl(2)=tconvzl(2)+fcvz
 
             tpresxl(2)=tpresxl(2)+fprx
-            ! tpresyl(2)=tpresyl(2)+fpry
+            tpresyl(2)=tpresyl(2)+fpry
             tpreszl(2)=tpreszl(2)+fprz
 
             tdiffxl(2)=tdiffxl(2)+fdix
@@ -1572,14 +1572,14 @@ contains
          enddo
       endif
       !AB and DC : y-pencils
-      !AB
+      !AB (left x face, outward normal n = -xhat)
       if ((icvlf(iv).ge.ystart(1)).and.(icvlf(iv).le.yend(1))) then
          i=icvlf(iv)-ystart(1)+1
-         ii=icvlf(iv)-1
-         xm=real(ii,mytype)*dx
+         ii=icvlf(iv)
+         xm=real(ii-1,mytype)*dx
          do k=zcvlf_ly(iv),zcvrt_ly(iv)
             kk=ystart(3)+k-1
-            zm=real(kk,mytype)*dz
+            zm=real(kk-1,mytype)*dz
             fcvx=zero
             fcvy=zero
             fcvz=zero
@@ -1592,49 +1592,46 @@ contains
             do j=jcvlw_ly(iv),jcvup_ly(iv)-1
 
                jj=ystart(2)+j-1
-               ym=real(jj,mytype)*dy
-              !  write(*,*) 'Calculating force at left x boundary', [xm,ym,zm]
-               !momentum flux
+               ym=half*(yp(jj)+yp(jj+1))   ! midpoint between nodes jj and jj+1
                radial = [xm,ym,zm]-position(iv,:)
+               dA = del_y(j)*dz
 
-               call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
+               !momentum flux: (u.n)(r x u) dA, n=-xhat -> (u.n)=-uxmid
+               call crossProduct(angularVelocity(iv,2:4),radial,rotationalComponent)
                uxmid = half*(ux2(i,j,k)+ux2(i,j+1,k)) - linearVelocity(iv,1) - rotationalComponent(1)
                uymid = half*(uy2(i,j,k)+uy2(i,j+1,k)) - linearVelocity(iv,2) - rotationalComponent(2)
                uzmid = half*(uz2(i,j,k)+uz2(i,j+1,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
-               fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uxmid*del_y(j)*dz
-               fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uxmid*del_y(j)*dz
-               fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uxmid*del_y(j)*dz
+               call crossProduct(radial,[uxmid,uymid,uzmid],cross_tmp)
+               fcvx = fcvx - uxmid*cross_tmp(1)*dA
+               fcvy = fcvy - uxmid*cross_tmp(2)*dA
+               fcvz = fcvz - uxmid*cross_tmp(3)*dA
 
-
-               !pressure
+               !pressure: r x (-p n) dA, n=-xhat -> F_p = +p xhat
                prmid = half*(ppi2(i,j,k)+ppi2(i,j+1,k))
-               ! fprx = fprx +prmid*del_y(j)*dz*(radial(3)-radial(2))
+               call crossProduct(radial,[prmid,zero,zero],cross_tmp)
+               fprx = fprx + cross_tmp(1)*dA
+               fpry = fpry + cross_tmp(2)*dA
+               fprz = fprz + cross_tmp(3)*dA
 
-               fpry = fpry + prmid*del_y(j)*dz*(radial(3))
-               fprz = fprz + prmid*del_y(j)*dz*(-radial(2))
-
-               !viscous term
+               !viscous: r x (tau.n) dA, n=-xhat -> F_v = -(tau_xx,tau_yx,tau_zx)
                dudxmid = half*(ta2(i,j,k)+ta2(i,j+1,k))
                dudymid = half*(tc2(i,j,k)+tc2(i,j+1,k))
                dvdxmid = half*(tb2(i,j,k)+tb2(i,j+1,k))
                dwdxmid = half*(te2(i,j,k)+te2(i,j+1,k))
                dudzmid = half*(tg2(i,j,k)+tg2(i,j+1,k))
 
-               fdix = fdix - (xnu*(dvdxmid+dudymid)*radial(3)-xnu*(dwdxmid+dudzmid)*radial(2))*del_y(j)*dz
-               fdiy = fdiy - (xnu*(dwdxmid+dudzmid)*radial(1)-xnu*(two*dudxmid)*radial(3))*del_y(j)*dz
-               fdiz = fdiz - (xnu*(two*dudxmid)*radial(2)-xnu*(dvdxmid+dudymid)*radial(1))*del_y(j)*dz
-
-
-               ! fdix = fdix -two*xnu*dudxmid*del_y(j)*dz
-               ! fdiy = fdiy -xnu*(dvdxmid+dudymid)*del_y(j)*dz
-               ! fdiz = fdiz -xnu*(dwdxmid+dudzmid)*del_y(j)*dz
+               fvec = [-two*xnu*dudxmid, -xnu*(dvdxmid+dudymid), -xnu*(dwdxmid+dudzmid)]
+               call crossProduct(radial,fvec,cross_tmp)
+               fdix = fdix + cross_tmp(1)*dA
+               fdiy = fdiy + cross_tmp(2)*dA
+               fdiz = fdiz + cross_tmp(3)*dA
             enddo
             tconvxl(3)=tconvxl(3)+fcvx
             tconvyl(3)=tconvyl(3)+fcvy
             tconvzl(3)=tconvzl(3)+fcvz
 
-            ! tpresxl(3)=tpresxl(3)+fprx
+            tpresxl(3)=tpresxl(3)+fprx
             tpresyl(3)=tpresyl(3)+fpry
             tpreszl(3)=tpreszl(3)+fprz
 
@@ -1644,14 +1641,14 @@ contains
 
          enddo
       endif
-      !DC
+      !DC (right x face, outward normal n = +xhat)
       if ((icvrt(iv).ge.ystart(1)).and.(icvrt(iv).le.yend(1))) then
          i=icvrt(iv)-ystart(1)+1
          ii=icvrt(iv)
-         xm=real(ii,mytype)*dx
+         xm=real(ii-1,mytype)*dx
          do k=zcvlf_ly(iv),zcvrt_ly(iv)
             kk=ystart(3)-1+k
-            zm=real(kk,mytype)*dz
+            zm=real(kk-1,mytype)*dz
             fcvx=zero
             fcvy=zero
             fcvz=zero
@@ -1663,53 +1660,47 @@ contains
             fdiz=zero
             do j=jcvlw_ly(iv),jcvup_ly(iv)-1
                jj=ystart(2)+j-1
-               ym=real(jj,mytype)*dy
-              !  write(*,*) 'Calculating force at right x boundary', [xm,ym,zm]
-
+               ym=half*(yp(jj)+yp(jj+1))   ! midpoint between nodes jj and jj+1
                radial = [xm,ym,zm]-position(iv,:)
+               dA = del_y(j)*dz
 
-               !momentum flux
-               call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
+               !momentum flux: (u.n)(r x u) dA, n=+xhat -> (u.n)=+uxmid
+               call crossProduct(angularVelocity(iv,2:4),radial,rotationalComponent)
                uxmid = half*(ux2(i,j,k)+ux2(i,j+1,k)) - linearVelocity(iv,1) - rotationalComponent(1)
                uymid = half*(uy2(i,j,k)+uy2(i,j+1,k)) - linearVelocity(iv,2) - rotationalComponent(2)
                uzmid = half*(uz2(i,j,k)+uz2(i,j+1,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
+               call crossProduct(radial,[uxmid,uymid,uzmid],cross_tmp)
+               fcvx = fcvx + uxmid*cross_tmp(1)*dA
+               fcvy = fcvy + uxmid*cross_tmp(2)*dA
+               fcvz = fcvz + uxmid*cross_tmp(3)*dA
 
-               fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uxmid*del_y(j)*dz
-               fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uxmid*del_y(j)*dz
-               fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uxmid*del_y(j)*dz
-
-
-
-               !pressure
+               !pressure: r x (-p n) dA, n=+xhat -> F_p = -p xhat
                prmid = half*(ppi2(i,j,k)+ppi2(i,j+1,k))
-               ! fprx = fprx -prmid*del_y(j)*dz*(radial(3)-radial(2))
+               call crossProduct(radial,[-prmid,zero,zero],cross_tmp)
+               fprx = fprx + cross_tmp(1)*dA
+               fpry = fpry + cross_tmp(2)*dA
+               fprz = fprz + cross_tmp(3)*dA
 
-               fpry = fpry - prmid*del_y(j)*dz*(radial(3))
-               fprz = fprz - prmid*del_y(j)*dz*(-radial(2))
-
-               !viscous term
+               !viscous: r x (tau.n) dA, n=+xhat -> F_v = +(tau_xx,tau_yx,tau_zx)
                dudxmid = half*(ta2(i,j,k)+ta2(i,j+1,k))
                dudymid = half*(tc2(i,j,k)+tc2(i,j+1,k))
                dvdxmid = half*(tb2(i,j,k)+tb2(i,j+1,k))
                dwdxmid = half*(te2(i,j,k)+te2(i,j+1,k))
                dudzmid = half*(tg2(i,j,k)+tg2(i,j+1,k))
 
-               fdix = fdix + (xnu*(dvdxmid+dudymid)*radial(3)-xnu*(dwdxmid+dudzmid)*radial(2))*del_y(j)*dz
-               fdiy = fdiy + (xnu*(dwdxmid+dudzmid)*radial(1)-xnu*(two*dudxmid)*radial(3))*del_y(j)*dz
-               fdiz = fdiz + (xnu*(two*dudxmid)*radial(2)-xnu*(dvdxmid+dudymid)*radial(1))*del_y(j)*dz
-
-
-               ! fdix = fdix + two*xnu*dudxmid*del_y(j)*dz
-               ! fdiy = fdiy + xnu*(dvdxmid+dudymid)*del_y(j)*dz
-               ! fdiz = fdiz + xnu*(dwdxmid+dudzmid)*del_y(j)*dz
+               fvec = [two*xnu*dudxmid, xnu*(dvdxmid+dudymid), xnu*(dwdxmid+dudzmid)]
+               call crossProduct(radial,fvec,cross_tmp)
+               fdix = fdix + cross_tmp(1)*dA
+               fdiy = fdiy + cross_tmp(2)*dA
+               fdiz = fdiz + cross_tmp(3)*dA
 
             enddo
             tconvxl(4)=tconvxl(4)+fcvx
             tconvyl(4)=tconvyl(4)+fcvy
             tconvzl(4)=tconvzl(4)+fcvz
 
-            ! tpresxl(4)=tpresxl(4)+fprx
+            tpresxl(4)=tpresxl(4)+fprx
             tpresyl(4)=tpresyl(4)+fpry
             tpreszl(4)=tpreszl(4)+fprz
 
@@ -1722,11 +1713,11 @@ contains
 
       !Left & Right :
       if (itype.ne.itype_cyl) then
-        !Left
+        !Left (lower z face, outward normal n = -zhat)
         if ((zcvlf(iv).ge.xstart(3)).and.(zcvlf(iv).le.xend(3))) then
           k=zcvlf(iv)-xstart(3)+1
           kk=zcvlf(iv)
-          zm=real(kk,mytype)*dz
+          zm=real(kk-1,mytype)*dz
 
           fcvx=zero
           fcvy=zero
@@ -1738,69 +1729,61 @@ contains
           fdiy=zero
           fdiz=zero
           do j=jcvlw_lx(iv),jcvup_lx(iv)
-           kk = xstart(2)-1+j
            jj = xstart(2)-1+j
-
-           ym=real(jj,mytype)*dy
+           ym=yp(jj)
              do i=icvlf_lx(iv),icvrt_lx(iv)-1
                 ii=xstart(1)+i-1
-                xm=real(ii,mytype)*dx
-                ! write(*,*) 'Calculating force at left z boundary', [xm,ym,zm]
-
-                !momentum flux
+                xm=(real(ii,mytype)-half)*dx   ! midpoint between nodes ii and ii+1
                 radial = [xm,ym,zm]-position(iv,:)
+                dA = dx*del_y(min(ny-1,jj))
 
-                call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
+                !momentum flux: (u.n)(r x u) dA, n=-zhat -> (u.n)=-uzmid
+                call crossProduct(angularVelocity(iv,2:4),radial,rotationalComponent)
                 uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
                 uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
                 uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
-                fcvx = fcvx -(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j) !!!CHANGE
-                fcvy = fcvy -(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
-                fcvz = fcvz -(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+                call crossProduct(radial,[uxmid,uymid,uzmid],cross_tmp)
+                fcvx = fcvx - uzmid*cross_tmp(1)*dA
+                fcvy = fcvy - uzmid*cross_tmp(2)*dA
+                fcvz = fcvz - uzmid*cross_tmp(3)*dA
 
-                !pressure
+                !pressure: r x (-p n) dA, n=-zhat -> F_p = +p zhat
                 prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
-              !   fprz = fprz -prmid*dx*dy*(radial(2)-radial(1))
-                fprx = fprx +prmid*dx*dy*(radial(2))
-                fpry = fpry +prmid*dx*dy*(-radial(1))
+                call crossProduct(radial,[zero,zero,prmid],cross_tmp)
+                fprx = fprx + cross_tmp(1)*dA
+                fpry = fpry + cross_tmp(2)*dA
+                fprz = fprz + cross_tmp(3)*dA
 
-                !viscous term
+                !viscous: r x (tau.n) dA, n=-zhat -> F_v = -(tau_xz,tau_yz,tau_zz)
                 dudzmid = half*(tg1(i,j,k)+tg1(i+1,j,k))
                 dwdxmid = half*(te1(i,j,k)+te1(i+1,j,k))
                 dvdzmid = half*(th1(i,j,k)+th1(i+1,j,k))
                 dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
                 dwdzmid = half*(ti1(i,j,k)+ti1(i+1,j,k))
 
-                fdix = fdix - (xnu*(dvdzmid+dwdymid)*radial(3)-xnu*(two*dwdzmid)*radial(2))*dx*dy
-                fdiy = fdiy - (xnu*(two*dwdzmid)*radial(1)-xnu*(dudzmid+dwdxmid)*radial(3))*dx*dy
-                fdiz = fdiz - (xnu*(dudzmid+dwdxmid)*radial(2)-xnu*(dvdzmid+dwdymid)*radial(1))*dx*dy
-
-
-              !   fdix = fdix +(xnu*(dudzmid+dwdxmid)*dx*dy)
-              !   fdiy = fdiy +(xnu*(dvdzmid+dwdymid)*dx*dy)
-              !   fdiz = fdiz +(xnu*(two*dwdzmid)*dx*dy)
+                fvec = [-xnu*(dudzmid+dwdxmid), -xnu*(dvdzmid+dwdymid), -two*xnu*dwdzmid]
+                call crossProduct(radial,fvec,cross_tmp)
+                fdix = fdix + cross_tmp(1)*dA
+                fdiy = fdiy + cross_tmp(2)*dA
+                fdiz = fdiz + cross_tmp(3)*dA
              enddo
           enddo
-!print*, kk
-!        drag3(kk)=drag3(kk)+fcvx   ! Should be size ny
-!        print*, drag3(kk)
           tconvxl2(5)=tconvxl2(5)+fcvx
           tconvyl2(5)=tconvyl2(5)+fcvy
           tconvzl2(5)=tconvzl2(5)+fcvz
           tpresxl(5) =tpresxl(5) +fprx
           tpresyl(5) =tpresyl(5) +fpry
-        !   tpreszl(5) =tpreszl(5) +fprz
+          tpreszl(5) =tpreszl(5) +fprz
           tdiffxl2(5)=tdiffxl2(5)+fdix
           tdiffyl2(5)=tdiffyl2(5)+fdiy
           tdiffzl2(5)=tdiffzl2(5)+fdiz
        endif
-       !Right
+       !Right (upper z face, outward normal n = +zhat)
        if ((zcvrt(iv).ge.xstart(3)).and.(zcvrt(iv).le.xend(3))) then
           k=zcvrt(iv)-xstart(3)+1
           kk=zcvrt(iv)
-          zm=real(kk,mytype)*dz
-!        kk=nrank+1
+          zm=real(kk-1,mytype)*dz
 
           fcvx=zero
           fcvy=zero
@@ -1811,63 +1794,55 @@ contains
           fdix=zero
           fdiy=zero
           fdiz=zero
-        !  do k=1,xsize(3)
           do j=jcvlw_lx(iv),jcvup_lx(iv)
-           ! kk must be reassigned to y-global index to match the Left z-face block,
-           ! since tconvxl2/tdiffxl2/tpreszl etc. are sized (ny) and accumulated per y-slice.
-           kk = xstart(2)-1+j
            jj = xstart(2)-1+j
-           ym=real(jj,mytype)*dy
+           ym=yp(jj)
             do i=icvlf_lx(iv),icvrt_lx(iv)-1
               ii=xstart(1)+i-1
-              xm=real(ii,mytype)*dx
-                !momentum flux
+              xm=(real(ii,mytype)-half)*dx   ! midpoint between nodes ii and ii+1
               radial = [xm,ym,zm]-position(iv,:)
+              dA = dx*del_y(min(ny-1,jj))
 
-              call crossProduct(angularVelocity(iv,2:4),[xm,ym,zm]-position(iv,:),rotationalComponent)
-             !  write(*,*) 'Calculating force at right z boundary', [xm,ym,zm]
-
+              !momentum flux: (u.n)(r x u) dA, n=+zhat -> (u.n)=+uzmid
+              call crossProduct(angularVelocity(iv,2:4),radial,rotationalComponent)
               uxmid = half*(ux1(i,j,k)+ux1(i+1,j,k)) - linearVelocity(iv,1) - rotationalComponent(1)
               uymid = half*(uy1(i,j,k)+uy1(i+1,j,k)) - linearVelocity(iv,2) - rotationalComponent(2)
               uzmid = half*(uz1(i,j,k)+uz1(i+1,j,k)) - linearVelocity(iv,3) - rotationalComponent(3)
 
-              fcvx = fcvx +(uymid*radial(3)-uzmid*radial(2))*uzmid*dx*del_y(j)
-              fcvy = fcvy +(uzmid*radial(1)-uxmid*radial(3))*uzmid*dx*del_y(j)
-              fcvz = fcvz +(uxmid*radial(2)-uymid*radial(1))*uzmid*dx*del_y(j)
+              call crossProduct(radial,[uxmid,uymid,uzmid],cross_tmp)
+              fcvx = fcvx + uzmid*cross_tmp(1)*dA
+              fcvy = fcvy + uzmid*cross_tmp(2)*dA
+              fcvz = fcvz + uzmid*cross_tmp(3)*dA
 
+              !pressure: r x (-p n) dA, n=+zhat -> F_p = -p zhat
+              prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
+              call crossProduct(radial,[zero,zero,-prmid],cross_tmp)
+              fprx = fprx + cross_tmp(1)*dA
+              fpry = fpry + cross_tmp(2)*dA
+              fprz = fprz + cross_tmp(3)*dA
 
-                !pressure
-                prmid = half*(ppi1(i,j,k)+ppi1(i+1,j,k))
-              !   fprz = fprz +prmid*dx*dy*(radial(2)-radial(1))
+              !viscous: r x (tau.n) dA, n=+zhat -> F_v = +(tau_xz,tau_yz,tau_zz)
+              dudzmid = half*(tg1(i,j,k)+tg1(i+1,j,k))
+              dwdxmid = half*(te1(i,j,k)+te1(i+1,j,k))
+              dvdzmid = half*(th1(i,j,k)+th1(i+1,j,k))
+              dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
+              dwdzmid = half*(ti1(i,j,k)+ti1(i+1,j,k))
 
-                fprx = fprx -prmid*dx*dy*(radial(2))
-                fpry = fpry -prmid*dx*dy*(-radial(1))
-
-                !viscous term
-                dudzmid = half*(tg1(i,j,k)+tg1(i+1,j,k))
-                dwdxmid = half*(te1(i,j,k)+te1(i+1,j,k))
-                dvdzmid = half*(th1(i,j,k)+th1(i+1,j,k))
-                dwdymid = half*(tf1(i,j,k)+tf1(i+1,j,k))
-                dwdzmid = half*(ti1(i,j,k)+ti1(i+1,j,k))
-
-                fdix = fdix + (xnu*(dvdzmid+dwdymid)*radial(3)-xnu*(two*dwdzmid)*radial(2))*dx*dy
-                fdiy = fdiy + (xnu*(two*dwdzmid)*radial(1)-xnu*(dudzmid+dwdxmid)*radial(3))*dx*dy
-                fdiz = fdiz + (xnu*(dudzmid+dwdxmid)*radial(2)-xnu*(dvdzmid+dwdymid)*radial(1))*dx*dy
-
-              !   fdix = fdix -(xnu*(dudzmid+dwdxmid)*dx*dy)
-              !   fdiy = fdiy -(xnu*(dvdzmid+dwdymid)*dx*dy)
-              !   fdiz = fdiz -two*xnu*dwdzmid*dx*dy
+              fvec = [xnu*(dudzmid+dwdxmid), xnu*(dvdzmid+dwdymid), two*xnu*dwdzmid]
+              call crossProduct(radial,fvec,cross_tmp)
+              fdix = fdix + cross_tmp(1)*dA
+              fdiy = fdiy + cross_tmp(2)*dA
+              fdiz = fdiz + cross_tmp(3)*dA
 
              enddo
           enddo
-!        drag4(kk)=drag4(kk)+fcvx    ! Should be size ny
           tconvxl2(6)=tconvxl2(6)+fcvx
           tconvyl2(6)=tconvyl2(6)+fcvy
           tconvzl2(6)=tconvzl2(6)+fcvz
 
-          tpresxl(6) =tpresxl(6) +fprx !!!!!!!!
+          tpresxl(6) =tpresxl(6) +fprx
           tpresyl(6) =tpresyl(6) +fpry
-        !   tpreszl(6) =tpreszl(6) +fprz
+          tpreszl(6) =tpreszl(6) +fprz
 
           tdiffxl2(6)=tdiffxl2(6)+fdix
           tdiffyl2(6)=tdiffyl2(6)+fdiy
@@ -1897,21 +1872,23 @@ contains
       tp1 = sum(tpresx(:))/dt
       tp2 = sum(tpresy(:))/dt
 
-      mom1 = sum(tunstx(:)) + sum(tconvx(:)) + (-2.0*tconv2_sign+1.0)*sum(tconvx2(:)) !if tconv2sign == 1.0, multiply by -1
-      mom2 = sum(tunsty(:)) + sum(tconvy(:)) + (-2.0*tconv2_sign+1.0)*sum(tconvy2(:))
+      ! All terms share the r x F convention, so the torque on the body is
+      ! assembled exactly like the force in force():  T = diff + pres - mom.
+      mom1 = sum(tunstx(:)) + sum(tconvx(:)) + sum(tconvx2(:))
+      mom2 = sum(tunsty(:)) + sum(tconvy(:)) + sum(tconvy2(:))
 
       if (itype.eq.itype_cyl) then
          tp3 = sum(tpresz(:))/dt
-         mom3 = sum(tunstz(:)) + sum(tconvz(:)) + (-2.0*tconv2_sign+1.0)*sum(tconvz2(:))
+         mom3 = sum(tunstz(:)) + sum(tconvz(:)) + sum(tconvz2(:))
          dra1(iv) = zero
          dra2(iv) = zero
-         dra3(iv) = -(sum(tdiffz) + sum(tdiffz2) + tp3 - mom3)*(1.0-2.0*torq_flip)
+         dra3(iv) = (sum(tdiffz) + sum(tdiffz2) + tp3 - mom3)
       else
          tp3 = sum(tpresz(:))/dt
-         mom3 = sum(tunstz(:)) + sum(tconvz(:)) + (-2.0*tconv2_sign+1.0)*sum(tconvz2(:))
-         dra1(iv) = -(sum(tdiffx) + sum(tdiffx2) + tp1 - mom1)*(1.0-2.0*torq_flip)
-         dra2(iv) = -(sum(tdiffy) + sum(tdiffy2) + tp2 - mom2)*(1.0-2.0*torq_flip)
-         dra3(iv) = -(sum(tdiffz) + sum(tdiffz2) + tp3 - mom3)*(1.0-2.0*torq_flip)
+         mom3 = sum(tunstz(:)) + sum(tconvz(:)) + sum(tconvz2(:))
+         dra1(iv) = (sum(tdiffx) + sum(tdiffx2) + tp1 - mom1)
+         dra2(iv) = (sum(tdiffy) + sum(tdiffy2) + tp2 - mom2)
+         dra3(iv) = (sum(tdiffz) + sum(tdiffz2) + tp3 - mom3)
       endif
 
       ! do k=1,zsize(3)
