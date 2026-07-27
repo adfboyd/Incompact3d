@@ -629,15 +629,26 @@ contains
       real(mytype), intent(out), dimension(xsize(1),xsize(2),xsize(3)) :: qx, qy, qz
       real(mytype), allocatable :: qx2(:,:,:), qy2(:,:,:), qz2(:,:,:)
       real(mytype), allocatable :: qx3(:,:,:), qy3(:,:,:), qz3(:,:,:)
-      integer :: s
+      integer :: s, d, ii, jj, kk
+      real(mytype) :: w
 
+      ! Each sample is spread with a 3-point (1/4,1/2,1/4) hat smoothing along
+      ! its dominant-normal axis (the boundary's fractional direction, contiguous
+      ! within that sample group's pencil). This regularises the single-cell
+      ! delta so the projected correction is smooth and full-strength enforcement
+      ! does not create near-body velocity spikes. sample_field is the adjoint.
       qx = zero
       qy = zero
       qz = zero
       do s = 1, nsx
-         qx(ix_sx(s),jy_sx(s),kz_sx(s)) = qx(ix_sx(s),jy_sx(s),kz_sx(s)) + vx(s) * nx_sx(s)
-         qy(ix_sx(s),jy_sx(s),kz_sx(s)) = qy(ix_sx(s),jy_sx(s),kz_sx(s)) + vx(s) * ny_sx(s)
-         qz(ix_sx(s),jy_sx(s),kz_sx(s)) = qz(ix_sx(s),jy_sx(s),kz_sx(s)) + vx(s) * nz_sx(s)
+         do d = -1, 1
+            ii = ix_sx(s) + d
+            if (ii.lt.1 .or. ii.gt.xsize(1)) cycle
+            w = merge(0.5_mytype, 0.25_mytype, d.eq.0)
+            qx(ii,jy_sx(s),kz_sx(s)) = qx(ii,jy_sx(s),kz_sx(s)) + w * vx(s) * nx_sx(s)
+            qy(ii,jy_sx(s),kz_sx(s)) = qy(ii,jy_sx(s),kz_sx(s)) + w * vx(s) * ny_sx(s)
+            qz(ii,jy_sx(s),kz_sx(s)) = qz(ii,jy_sx(s),kz_sx(s)) + w * vx(s) * nz_sx(s)
+         enddo
       enddo
 
       allocate(qx2(ysize(1),ysize(2),ysize(3)), qy2(ysize(1),ysize(2),ysize(3)), qz2(ysize(1),ysize(2),ysize(3)))
@@ -645,9 +656,14 @@ contains
       call transpose_x_to_y(qy, qy2)
       call transpose_x_to_y(qz, qz2)
       do s = 1, nsy
-         qx2(ix_sy(s),jy_sy(s),kz_sy(s)) = qx2(ix_sy(s),jy_sy(s),kz_sy(s)) + vy(s) * nx_sy(s)
-         qy2(ix_sy(s),jy_sy(s),kz_sy(s)) = qy2(ix_sy(s),jy_sy(s),kz_sy(s)) + vy(s) * ny_sy(s)
-         qz2(ix_sy(s),jy_sy(s),kz_sy(s)) = qz2(ix_sy(s),jy_sy(s),kz_sy(s)) + vy(s) * nz_sy(s)
+         do d = -1, 1
+            jj = jy_sy(s) + d
+            if (jj.lt.1 .or. jj.gt.ysize(2)) cycle
+            w = merge(0.5_mytype, 0.25_mytype, d.eq.0)
+            qx2(ix_sy(s),jj,kz_sy(s)) = qx2(ix_sy(s),jj,kz_sy(s)) + w * vy(s) * nx_sy(s)
+            qy2(ix_sy(s),jj,kz_sy(s)) = qy2(ix_sy(s),jj,kz_sy(s)) + w * vy(s) * ny_sy(s)
+            qz2(ix_sy(s),jj,kz_sy(s)) = qz2(ix_sy(s),jj,kz_sy(s)) + w * vy(s) * nz_sy(s)
+         enddo
       enddo
 
       allocate(qx3(zsize(1),zsize(2),zsize(3)), qy3(zsize(1),zsize(2),zsize(3)), qz3(zsize(1),zsize(2),zsize(3)))
@@ -657,9 +673,14 @@ contains
       deallocate(qx2, qy2, qz2)
 
       do s = 1, nsz
-         qx3(ix_sz(s),jy_sz(s),kz_sz(s)) = qx3(ix_sz(s),jy_sz(s),kz_sz(s)) + vz(s) * nx_sz(s)
-         qy3(ix_sz(s),jy_sz(s),kz_sz(s)) = qy3(ix_sz(s),jy_sz(s),kz_sz(s)) + vz(s) * ny_sz(s)
-         qz3(ix_sz(s),jy_sz(s),kz_sz(s)) = qz3(ix_sz(s),jy_sz(s),kz_sz(s)) + vz(s) * nz_sz(s)
+         do d = -1, 1
+            kk = kz_sz(s) + d
+            if (kk.lt.1 .or. kk.gt.zsize(3)) cycle
+            w = merge(0.5_mytype, 0.25_mytype, d.eq.0)
+            qx3(ix_sz(s),jy_sz(s),kk) = qx3(ix_sz(s),jy_sz(s),kk) + w * vz(s) * nx_sz(s)
+            qy3(ix_sz(s),jy_sz(s),kk) = qy3(ix_sz(s),jy_sz(s),kk) + w * vz(s) * ny_sz(s)
+            qz3(ix_sz(s),jy_sz(s),kk) = qz3(ix_sz(s),jy_sz(s),kk) + w * vz(s) * nz_sz(s)
+         enddo
       enddo
 
       allocate(qx2(ysize(1),ysize(2),ysize(3)), qy2(ysize(1),ysize(2),ysize(3)), qz2(ysize(1),ysize(2),ysize(3)))
@@ -678,15 +699,25 @@ contains
       real(mytype), intent(out) :: vx(:), vy(:), vz(:)
       real(mytype), allocatable :: qx2(:,:,:), qy2(:,:,:), qz2(:,:,:)
       real(mytype), allocatable :: qx3(:,:,:), qy3(:,:,:), qz3(:,:,:)
-      integer :: s
+      integer :: s, d, ii, jj, kk
+      real(mytype) :: w, acc
 
+      ! Adjoint of spread_vector: 3-point (1/4,1/2,1/4) weighted sample of the
+      ! normal velocity along each sample's dominant axis.
       vx = zero
       vy = zero
       vz = zero
       do s = 1, nsx
-         vx(s) = qx(ix_sx(s),jy_sx(s),kz_sx(s)) * nx_sx(s) + &
-              qy(ix_sx(s),jy_sx(s),kz_sx(s)) * ny_sx(s) + &
-              qz(ix_sx(s),jy_sx(s),kz_sx(s)) * nz_sx(s)
+         acc = zero
+         do d = -1, 1
+            ii = ix_sx(s) + d
+            if (ii.lt.1 .or. ii.gt.xsize(1)) cycle
+            w = merge(0.5_mytype, 0.25_mytype, d.eq.0)
+            acc = acc + w * (qx(ii,jy_sx(s),kz_sx(s)) * nx_sx(s) + &
+                 qy(ii,jy_sx(s),kz_sx(s)) * ny_sx(s) + &
+                 qz(ii,jy_sx(s),kz_sx(s)) * nz_sx(s))
+         enddo
+         vx(s) = acc
       enddo
 
       allocate(qx2(ysize(1),ysize(2),ysize(3)), qy2(ysize(1),ysize(2),ysize(3)), qz2(ysize(1),ysize(2),ysize(3)))
@@ -694,9 +725,16 @@ contains
       call transpose_x_to_y(qy, qy2)
       call transpose_x_to_y(qz, qz2)
       do s = 1, nsy
-         vy(s) = qx2(ix_sy(s),jy_sy(s),kz_sy(s)) * nx_sy(s) + &
-              qy2(ix_sy(s),jy_sy(s),kz_sy(s)) * ny_sy(s) + &
-              qz2(ix_sy(s),jy_sy(s),kz_sy(s)) * nz_sy(s)
+         acc = zero
+         do d = -1, 1
+            jj = jy_sy(s) + d
+            if (jj.lt.1 .or. jj.gt.ysize(2)) cycle
+            w = merge(0.5_mytype, 0.25_mytype, d.eq.0)
+            acc = acc + w * (qx2(ix_sy(s),jj,kz_sy(s)) * nx_sy(s) + &
+                 qy2(ix_sy(s),jj,kz_sy(s)) * ny_sy(s) + &
+                 qz2(ix_sy(s),jj,kz_sy(s)) * nz_sy(s))
+         enddo
+         vy(s) = acc
       enddo
 
       allocate(qx3(zsize(1),zsize(2),zsize(3)), qy3(zsize(1),zsize(2),zsize(3)), qz3(zsize(1),zsize(2),zsize(3)))
@@ -705,9 +743,16 @@ contains
       call transpose_y_to_z(qz2, qz3)
       deallocate(qx2, qy2, qz2)
       do s = 1, nsz
-         vz(s) = qx3(ix_sz(s),jy_sz(s),kz_sz(s)) * nx_sz(s) + &
-              qy3(ix_sz(s),jy_sz(s),kz_sz(s)) * ny_sz(s) + &
-              qz3(ix_sz(s),jy_sz(s),kz_sz(s)) * nz_sz(s)
+         acc = zero
+         do d = -1, 1
+            kk = kz_sz(s) + d
+            if (kk.lt.1 .or. kk.gt.zsize(3)) cycle
+            w = merge(0.5_mytype, 0.25_mytype, d.eq.0)
+            acc = acc + w * (qx3(ix_sz(s),jy_sz(s),kk) * nx_sz(s) + &
+                 qy3(ix_sz(s),jy_sz(s),kk) * ny_sz(s) + &
+                 qz3(ix_sz(s),jy_sz(s),kk) * nz_sz(s))
+         enddo
+         vz(s) = acc
       enddo
       deallocate(qx3, qy3, qz3)
     end subroutine sample_field

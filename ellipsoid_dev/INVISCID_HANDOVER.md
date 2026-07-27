@@ -1,10 +1,14 @@
 # Inviscid Ellipsoid Handover
 
-Date: 2026-06-30
+Date: 2026-06-30 (updated 2026-07-27)
 
 This branch contains experimental work for inviscid ellipsoid immersed-boundary
 treatment. Keep it separate from `ellipsoid-dev`, which is the validated viscous
 ellipsoid branch.
+
+**2026-07-27 update: the core instability and force-symmetry bugs are fixed.**
+See "2026-07-27 Fixes" below before reading the rest of this doc — several
+items in "Validation State" and "Open Work" are now resolved.
 
 ## Branch State
 
@@ -77,6 +81,86 @@ correction:
 Internal pressure-projection calls must not overwrite the physical pressure
 gradient history used for force calculation. The current code passes
 `save_bc_grad=.false.` and `quiet=.true.` for those internal calls.
+
+## 2026-07-27 Fixes
+
+Two independent problems were conflated in the earlier validation state below:
+a **boundary-condition accuracy** problem (drag doesn't converge to the right
+value) and a **bulk stability** problem (velocity field runs away over long
+times regardless of Schur relax). They needed two separate fixes.
+
+**1. Grid-scale energy runaway (the actual cause of "just fails").** With
+`xnu=0`, there is zero dissipation anywhere in the domain, including the
+hyperviscous SVV operator (it's scaled by `xnu` too). The Schur projection
+only enforces the surface boundary condition — it does nothing for bulk
+interior energy. Over 1500 steps, `Umax` grew unboundedly (5-7x inflow) no
+matter what Schur `relax` was used; higher relax made it *worse*, not better.
+Fix: wired the existing compact spatial filter (`src/filters.f90` +
+`src/tools.f90`, already used for ABL/LES) as a standalone dissipation
+mechanism, independent of `ilesmod`/physical viscosity. Time-loop gate in
+`src/xcompact3d.f90` now allows `itype.eq.itype_ellip` through in addition to
+the existing ABL/turbine condition; still opt-in via `ifilter` (default 0,
+so viscous cases on `ellipsoid-dev` are unaffected). Add to any inviscid
+input file:
+```
+ifilter = 1
+C_filter = 0.49
+```
+This alone stabilizes `Umax` to ~1.15-1.25 (vs 5-7x runaway) over 1500 steps.
+Counter-intuitively, *more* aggressive filtering (lower `C_filter`) makes
+drag accuracy *worse*, not better — it over-smooths the potential-flow
+structure itself, not just noise. Use mild filtering (0.49).
+
+**2. Schur `relax` must be retuned once the filter is active.** The filter's
+own damping already removes most of the surface residual, so the old
+unfiltered-tuned `relax=0.5` massively overcorrects (drag overshoots past
+zero, sign-flipped, ~2-3x worse than no correction at all). With
+`C_filter=0.49`, the drag zero-crossing is at **`relax≈0.008`**, not 0.5 — a
+~60x difference. Chosen defaults:
+```
+ellipsoid_schur_projection_iters = 3
+ellipsoid_schur_projection_relax = 0.008
+ellipsoid_schur_projection_tol = 1.0e-8
+```
+Do not reuse a `relax` value tuned without the filter, or vice versa.
+
+**3. Force-symmetry bug — three coordinate/kinematics bugs, now fixed.**
+Independently of the above, a fixed sphere in axisymmetric uniform inviscid
+flow showed `Fy≈0.03, Fz≈-0.017` — both *larger* than the drag `Fx≈-0.005`,
+where symmetry requires them to be exactly zero. This predated the filter/
+Schur work above (present even with both switched off) and traces to the
+same class of coordinate bug already found and fixed on `ellipsoid-dev`
+(see that branch's commit `67b5e1a`), but this branch diverged before those
+fixes landed and also has its own extra code with a fresh instance of the
+same bug pattern:
+- `src/ibm.f90`: `cubsplx/y/z` computed grid-point coordinates as
+  `(index-1)*dx` where the rest of the codebase uses `(index-2)*dx` — this
+  was the actual cause of the Fy/Fz asymmetry above; fixed and confirmed
+  (Fy, Fz now ~1e-15, machine zero).
+- `src/ellip_utils.f90`: `CalculatePointVelocity` computed `r×ω` instead of
+  `ω×r` for rigid-body surface velocity (sign-reversed; invisible for a
+  rotating *sphere* since it doesn't change whether `u·n=0`, but wrong for
+  any non-spherical rotating body).
+- `src/ellip_utils.f90`: `EllipsoidalRadius`/`EllipsoidalRadius_debug`
+  rotated lab→body using the raw orientation quaternion instead of its
+  conjugate (invisible at the identity orientation used by all the test
+  inputs, matters once a body's orientation is non-trivial).
+- `src/ellip_utils.f90`: `EllipsoidNormal` (used by the Schur projection's
+  surface-normal sampling — this function doesn't exist on `ellipsoid-dev`,
+  it's new on this branch) had the lab↔body rotation swapped in *both*
+  directions simultaneously. Also invisible at identity orientation.
+
+All four are fixed. Confirmed post-fix: sphere-in-uniform-flow Fy/Fz at
+machine epsilon; free translating+rotating non-spherical ellipsoid
+(`input_1ellip_inviscid_test.i3d`) stays bounded (`Umax` ~0.6-0.75, no
+blow-up) with all three force components responding continuously and
+plausibly to the tumbling motion.
+
+**Remaining known imperfection:** residual drag is small but not exactly
+zero on any case (order 0.01-0.07 depending on config, versus 0.078-0.47
+before these fixes), with mild time-drift in some configurations rather
+than a perfectly flat plateau. Presented as "much improved and stable," not
+"exact" — treat further precision work as the next increment, not blocking.
 
 ## Validation State
 
@@ -156,10 +240,23 @@ cleanly.
 
 ## Open Work
 
-- Make the Schur projection robust across resolution, time step, and body shape.
-- Confirm that the Schur correction remains compatible with moving and rotating
-  ellipsoids, not only spheres.
+- ~~Confirm that the Schur correction remains compatible with moving and~~
+  ~~rotating ellipsoids, not only spheres.~~ Done 2026-07-27: tested on a free
+  (translating+rotating) non-spherical ellipsoid, stable and bounded.
+- Drive residual drag closer to exactly zero (currently 0.01-0.07 depending
+  on case, down from 0.078-0.47, but not exact) — likely needs either a
+  finer Schur `relax`/`iters` sweep per-resolution, or addressing the
+  remaining discretization error in the reconstruction/projection directly
+  rather than trimming it with a scalar multiplier.
+- Make the Schur projection + filter combination robust across resolution
+  and time step (only validated at one grid/dt so far); C_filter and relax
+  were tuned together at nx=129, dt=0.001 — check whether they need to scale
+  with resolution.
 - Add automated post-processing for force magnitude, divergence summary, and
   sampled boundary-normal residual so results are comparable between machines.
+  (Note for whoever does this: when reading `forces.dat`/`forces.dat<N>`,
+  columns are `t, dra1(1..10), dra2(1..10), dra3(1..10), ...` — only element 1
+  of each length-10 array is populated when `nvol=1`; Fx/Fy/Fz are at columns
+  2/12/22, not 2/3/4. This tripped up validation more than once this session.)
 - Preserve or regenerate the key ParaView outputs if visual comparison is still
   needed.

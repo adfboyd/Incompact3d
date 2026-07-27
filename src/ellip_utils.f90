@@ -210,8 +210,9 @@ contains
 
       call QuaternionConjugate(orientation, orientation_c)
 
-      !rotate point into body frame (using inverse(conjugate) of orientation)
-      call RotatePoint(trans_point, orientation, rotated_point)
+      !rotate point into body frame. orientation q maps body->lab
+      !(v_lab = q v_body q*), so lab->body uses the conjugate.
+      call RotatePoint(trans_point, orientation_c, rotated_point)
 
       do i = 1,3
          scaled_point(i)=rotated_point(i)/shape(i)
@@ -241,14 +242,16 @@ contains
 
      trans_point = point - centre
 
-     call RotatePoint(trans_point, orientation, rotated_point)
+     call QuaternionConjugate(orientation, orientation_c)
+     ! lab->body: rotate by the conjugate (orientation maps body->lab)
+     call RotatePoint(trans_point, orientation_c, rotated_point)
 
      do i = 1,3
         normal_body(i) = rotated_point(i) / (shape(i) * shape(i))
      enddo
 
-     call QuaternionConjugate(orientation, orientation_c)
-     call RotatePoint(normal_body, orientation_c, normal)
+     ! body->lab: rotate the body-frame gradient back with the forward quaternion
+     call RotatePoint(normal_body, orientation, normal)
 
      normal_mag = sqrt(sum(normal * normal))
      if (normal_mag.gt.zero) then
@@ -299,7 +302,7 @@ contains
     write(*,*) "Orientation inverse = ", orientation_c
 
     !rotate point into body frame (using inverse(conjugate) of orientation)
-    call RotatePoint(trans_point, orientation, rotated_point)
+    call RotatePoint(trans_point, orientation_c, rotated_point)
 
     write(*,*) "Rotated point = ", rotated_point
     do i = 1,3
@@ -342,9 +345,8 @@ contains
     real(mytype) :: distance(3)
     distance = point - center
   
-    ! Compute the cross product of angular velocity and distance vector
-    
-    call CrossProduct(distance, angularVelocity(2:4), crossed)
+    ! Rigid-body surface velocity: v = v_lin + omega x r
+    call CrossProduct(angularVelocity(2:4), distance, crossed)
 
   
     ! Calculate the velocity at the point

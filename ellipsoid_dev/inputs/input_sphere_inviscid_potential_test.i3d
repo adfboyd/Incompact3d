@@ -3,6 +3,8 @@
 
 &BasicParam
 itype = 16
+ifilter = 1  ! grid-scale dissipation, required at xnu=0 (2026-07-27 fix)
+C_filter = 0.49
 
 p_row=0
 p_col=0
@@ -94,6 +96,9 @@ torq_debug=0
 torq_flip=1
 cvl_scalar=1.2
 nbody=1
+ellipsoid_schur_projection_iters=3
+ellipsoid_schur_projection_relax=0.008
+ellipsoid_schur_projection_tol=1.0e-8
 inviscid_output=0
 ellipsoid_init_potential=1
 /End

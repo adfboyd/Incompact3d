@@ -596,10 +596,10 @@ subroutine cubsplx(u,lind)
   end if
 
   do k=1,xsize(3)
-   zm=real(xstart(3)+k-1,mytype)*dz
+   zm=real(xstart(3)+k-2,mytype)*dz
    kg=xstart(3)+k-1
      do j=1,xsize(2)
-      ym=real(xstart(2)+j-1,mytype)*dy
+      ym=real(xstart(2)+j-2,mytype)*dy
       jg=xstart(2)+j-1
         if(nobjx(j,k).ne.0)then
            ia=0
@@ -824,10 +824,10 @@ subroutine cubsply(u,lind)
   endif
   !
   do k=1,ysize(3)
-   zm=real(ystart(3)+k-1,mytype)*dz
+   zm=real(ystart(3)+k-2,mytype)*dz
    kg=ystart(3)+k-1
      do i=1,ysize(1)
-      xm=real(ystart(1)+i-1,mytype)*dx
+      xm=real(ystart(1)+i-2,mytype)*dx
       ig=ystart(1)+i-1
         if(nobjy(i,k).ne.0)then
            ia=0
@@ -1043,10 +1043,10 @@ subroutine cubsplz(u,lind)
   end if
   !
   do j=1,zsize(2)
-   ym=real(zstart(2)+j-1,mytype)*dy
+   ym=real(zstart(2)+j-2,mytype)*dy
    jg=zstart(2)+j-1
      do i=1,zsize(1)
-      xm=real(zstart(1)+i-1,mytype)*dx
+      xm=real(zstart(1)+i-2,mytype)*dx
       ig=zstart(1)+i-1
         if(nobjz(i,j).ne.0)then
            ia=0

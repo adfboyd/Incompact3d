@@ -59,7 +59,13 @@ program xcompact3d
         call read_inflow(ux_inflow,uy_inflow,uz_inflow,itime/ntimesteps)
      endif
 
-     if ((itype.eq.itype_abl.or.iturbine.ne.0).and.(ifilter.ne.0).and.(ilesmod.ne.0)) then
+     ! Ellipsoid inviscid mode has no physical dissipation (xnu=0), so the
+     ! compact spatial filter is available as grid-scale stabilization
+     ! independent of the LES machinery (ilesmod) that other cases require it
+     ! through. Opt-in via ifilter/=0; default ifilter=0 keeps existing
+     ! viscous-ellipsoid behaviour unchanged.
+     if ((((itype.eq.itype_abl.or.iturbine.ne.0).and.(ilesmod.ne.0)) &
+          .or.(itype.eq.itype_ellip)).and.(ifilter.ne.0)) then
         call filter(C_filter)
         call apply_spatial_filter(ux1,uy1,uz1,phi1)
      endif
