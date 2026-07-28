@@ -156,11 +156,80 @@ machine epsilon; free translating+rotating non-spherical ellipsoid
 blow-up) with all three force components responding continuously and
 plausibly to the tumbling motion.
 
-**Remaining known imperfection:** residual drag is small but not exactly
-zero on any case (order 0.01-0.07 depending on config, versus 0.078-0.47
-before these fixes), with mild time-drift in some configurations rather
-than a perfectly flat plateau. Presented as "much improved and stable," not
-"exact" — treat further precision work as the next increment, not blocking.
+**Remaining known imperfection (as of 2026-07-27, corrected below):**
+residual drag is small but not exactly zero on any case (order 0.01-0.07
+depending on config, versus 0.078-0.47 before these fixes), with mild
+time-drift in some configurations rather than a perfectly flat plateau.
+
+## 2026-07-28 Update: relax is resolution-dependent, drag driven to ~zero
+
+Follow-up work on the "drive residual drag closer to zero" and "check
+whether filter/relax need to scale with resolution" open items, done
+together since they turned out to be the same question.
+
+**First finding (later corrected — see below): mesh dependence of the
+*converged* answer.** Extending runs long enough to actually reach their
+asymptote (the earlier `relax=0.008` validation was itself not fully
+converged) showed the residual drag *value* at fixed `relax=0.008` differs
+little between coarse and baseline mesh (-0.037 vs -0.042). This was
+initially read as "no rescaling needed" and committed as such. That
+conclusion was wrong, as the next paragraph found.
+
+**Corrected finding: the *optimal* relax is resolution-dependent, and
+`relax=0.008` just happened to sit near-enough to zero at both tested
+resolutions by coincidence.** Sweeping `relax` properly (holding
+`C_filter=0.49`, `iters=3` fixed, running each candidate long enough —
+`t=5.0` on the cheap coarse mesh, `t~2.5-3.0` on baseline — to see the
+residual genuinely flatten rather than reading off a still-drifting
+transient) gives a clean, monotonically decreasing, concave curve of
+converged drag vs. `relax` at *each* resolution, but the curves are
+shaped very differently:
+
+- Coarse (nx=65, dx=0.156): `relax=0` (no correction) → `Fx≈+0.231`;
+  0.001→+0.178; 0.003→+0.087; 0.005→+0.023; **0.006→≈0 (crosses here)**;
+  0.008→-0.037; 0.02→-0.119; 0.05→-0.155; 0.15→-0.168 (saturating).
+- Baseline (nx=129, dx=0.078): 0.001→+0.0127 (barely moved from 0);
+  **0.002→≈0 (crosses here)**; 0.006→-0.038; 0.008→-0.042 — i.e. baseline
+  is far *less* sensitive to relax than coarse is in the 0.006-0.008
+  range (that's the flat region past its own crossing), which is exactly
+  why a single relax value could look "resolution-independent" there
+  while being close to optimal for one resolution and badly overshot for
+  the other in absolute sensitivity terms.
+- The two crossings (coarse 0.006, baseline 0.002, a 2x change in dx)
+  are consistent with roughly `relax_opt ∝ dx^1.6` (only two points, this
+  is not a validated law, just a rough interpolation guide) — a
+  reasonable rough guide for picking a starting point at an untested
+  resolution, not a substitute for actually checking.
+- `relax=0` (filter-only, no Schur correction at all) is stable
+  long-term but gives the *worst* residual of anything tested (+0.231 on
+  coarse) — the Schur correction is genuinely necessary, just needs the
+  right relax for the mesh.
+
+**Practical result:** the two nx=129 sphere test inputs
+(`input_sphere_inviscid_potential_test.i3d`,
+`input_sphere_inviscid_uniform_test.i3d`) now ship with `relax=0.002`,
+validated to converge to `|Fx|<0.001` (down from ~-0.042, roughly a 40x
+improvement, essentially at the earlier "d'Alembert zero" target).
+`input_ellipsoid_inviscid_uniform_64_test.i3d` (same dx=0.078, different
+domain/body) was set to the same 0.002 by dx-match, not independently
+re-validated. `input_sphere_inviscid_rotating_test.i3d` and
+`input_1ellip_inviscid_test.i3d` (nx=64, dx=0.0635, an untested
+intermediate resolution) were set to `relax=0.0015` from the power-law
+interpolation above — **not independently validated**, and arguably lower
+priority to validate rigorously since neither test has a single
+well-defined steady residual to zero out in the first place (the rotating
+case gives force=0 by pure symmetry regardless of relax; the free
+tumbling ellipsoid's force varies continuously with its motion, so
+"residual drag" isn't a single number there).
+
+**Methodology note for retuning at a new resolution/case:** don't trust a
+short fixed-step-count reading — plot `Fx(t)` and only trust it once the
+increments have clearly decayed (geometric-looking decay is normal; the
+coarse mesh needed `t~5` even though it looked flat by `t~0.7`). Bisect on
+`relax` using the *converged* value, not an early transient snapshot —
+the whole point of this correction is that using transient snapshots is
+exactly what produced the wrong "no rescaling needed" conclusion in the
+first place.
 
 ## Validation State
 
@@ -243,35 +312,18 @@ cleanly.
 - ~~Confirm that the Schur correction remains compatible with moving and~~
   ~~rotating ellipsoids, not only spheres.~~ Done 2026-07-27: tested on a free
   (translating+rotating) non-spherical ellipsoid, stable and bounded.
-- Drive residual drag closer to exactly zero (currently 0.01-0.07 depending
-  on case, down from 0.078-0.47, but not exact) — likely needs either a
-  finer Schur `relax`/`iters` sweep per-resolution, or addressing the
-  remaining discretization error in the reconstruction/projection directly
-  rather than trimming it with a scalar multiplier.
-- ~~Make the Schur projection + filter combination robust across~~
-  ~~resolution... check whether they need to scale with resolution.~~
-  Checked 2026-07-28: same sphere/domain/dt at dx=0.156 (nx=65, half
-  baseline resolution), dx=0.078 (nx=129, baseline), dx=0.052 (nx=193,
-  1.5x baseline) — a 3x span in dx, same `C_filter=0.49`,
-  `relax=0.008`, `iters=3` at all three. Result: **no rescaling needed.**
-  Fy/Fz stay at machine epsilon and `Umax` stays bounded (~1.15-1.25) at
-  every resolution — stability and symmetry are resolution-independent.
-  The converged drag value is also resolution-independent: coarse settles
-  to `Fx≈-0.037` (confirmed by running to `t=5.0`, cheap at this
-  resolution — 0.16s/step), baseline settles to `Fx≈-0.042` (at
-  `t≈0.7-1.5`), same ballpark. What genuinely differs is the *settling
-  timescale*: coarse needs `t~3-5` for the residual to visibly flatten,
-  baseline needs `t~0.7-1.5`. This is expected for a fixed relaxation
-  fraction applied to a coarser, physically-slower-relaxing surface
-  correction — not a bug, and not something the current fixed defaults
-  need to compensate for. Practical implication: **when validating on
-  an unfamiliar resolution, don't trust a short fixed-step-count run
-  as converged — plot Fx(t) and confirm the increments have decayed
-  before reading off a value.** Fine mesh (dx=0.052) was only run to
-  `t=0.4` (this resolution is ~3.4x baseline's per-step cost, so a full
-  convergence check was skipped as unnecessary — no divergence and the
-  same qualitative trend/sign was already enough to confirm the pattern
-  holds in both directions, not just toward coarser meshes).
+- ~~Drive residual drag closer to exactly zero~~ / ~~Make the Schur~~
+  ~~projection + filter combination robust across resolution... check~~
+  ~~whether they need to scale with resolution.~~ These turned out to be
+  the same question, and the 2026-07-28 entry immediately below
+  **corrects an earlier same-day finding that wrongly claimed no
+  rescaling was needed.** That claim was based on testing only
+  `relax=0.008` at three resolutions and finding similar converged drag
+  (~-0.037 to -0.042) at all of them — which turned out to be a
+  coincidence of where 0.008 happens to sit on each resolution's own
+  (very differently-shaped) relax-vs-drag curve, not evidence the curves
+  themselves are resolution-independent. See below for the corrected
+  picture and the resolution-specific values now in use.
 - Add automated post-processing for force magnitude, divergence summary, and
   sampled boundary-normal residual so results are comparable between machines.
   (Note for whoever does this: when reading `forces.dat`/`forces.dat<N>`,

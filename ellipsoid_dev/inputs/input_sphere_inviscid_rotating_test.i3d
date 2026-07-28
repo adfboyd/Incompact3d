@@ -97,7 +97,7 @@ torq_flip=1
 cvl_scalar=1.2
 nbody=1
 ellipsoid_schur_projection_iters=3
-ellipsoid_schur_projection_relax=0.008
+ellipsoid_schur_projection_relax=0.0015  ! extrapolated for dx=0.0635, NOT independently validated - see INVISCID_HANDOVER.md
 ellipsoid_schur_projection_tol=1.0e-8
 /End
 
