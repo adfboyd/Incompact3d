@@ -59,13 +59,12 @@ program xcompact3d
         call read_inflow(ux_inflow,uy_inflow,uz_inflow,itime/ntimesteps)
      endif
 
-     ! Ellipsoid inviscid mode has no physical dissipation (xnu=0), so the
-     ! compact spatial filter is available as grid-scale stabilization
-     ! independent of the LES machinery (ilesmod) that other cases require it
-     ! through. Opt-in via ifilter/=0; default ifilter=0 keeps existing
-     ! viscous-ellipsoid behaviour unchanged.
-     if ((((itype.eq.itype_abl.or.iturbine.ne.0).and.(ilesmod.ne.0)) &
-          .or.(itype.eq.itype_ellip)).and.(ifilter.ne.0)) then
+     ! ABL/turbine cases filter at the start of the timestep (LES machinery).
+     ! Ellipsoid inviscid mode filters at the END instead (see after the
+     ! sub-timestep loop below) so the Schur correction's own output gets
+     ! smoothed before the next timestep's force/body-update, rather than
+     ! sitting unfiltered for a full timestep first.
+     if ((itype.eq.itype_abl.or.iturbine.ne.0).and.(ilesmod.ne.0).and.(ifilter.ne.0)) then
         call filter(C_filter)
         call apply_spatial_filter(ux1,uy1,uz1,phi1)
      endif
@@ -176,6 +175,19 @@ program xcompact3d
         if(mhd_active) call test_magnetic
 
      enddo !! End sub timesteps
+
+     ! Ellipsoid inviscid mode has no physical dissipation (xnu=0), so the
+     ! compact spatial filter is available as grid-scale stabilization
+     ! independent of the LES machinery (ilesmod) that other cases require it
+     ! through. Applied here (end of timestep, after the Schur correction)
+     ! rather than at the start, so the correction's own output is smoothed
+     ! before the next timestep's force/body-update sees it, instead of
+     ! sitting unfiltered for a full timestep first. Opt-in via ifilter/=0;
+     ! default ifilter=0 keeps existing viscous-ellipsoid behaviour unchanged.
+     if (itype.eq.itype_ellip.and.(ifilter.ne.0)) then
+        call filter(C_filter)
+        call apply_spatial_filter(ux1,uy1,uz1,phi1)
+     endif
 
      if (itype.eq.itype_ellip) call update_ellipsoid(ux1, uy1, uz1, ep1)
 

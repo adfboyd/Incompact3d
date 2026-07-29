@@ -281,7 +281,7 @@ contains
     use variables, only : yp, ilist
     use complex_geometry, only : nobjx, nobjy, nobjz, xi, xf, yi, yf, zi, zf
     use ibm_param, only : ellipsoid_schur_projection_iters, ellipsoid_schur_projection_relax, &
-         ellipsoid_schur_projection_tol
+         ellipsoid_schur_projection_tol, ellipsoid_schur_projection_passes
     use ellipsoid_utils, only : CalculatePointVelocity_Multi, EllipsoidNormal_Multi
     use var, only : t, nzmsize
     use MPI
@@ -310,9 +310,10 @@ contains
     real(mytype), allocatable :: sx_lambda(:), sy_lambda(:), sz_lambda(:)
     real(mytype), allocatable :: wx(:,:,:), wy(:,:,:), wz(:,:,:)
     integer :: capx, capy, capz, nsx, nsy, nsz, sample_count_local, sample_count_global
-    integer :: iter, iter_done, code, iunit
+    integer :: iter, iter_done, code, iunit, pass, npass
     logical :: file_exists
     real(mytype) :: rr, rr_new, pap, alpha, beta, initial_rms, final_rms, correction_rms
+    real(mytype) :: pass1_rms
     real(mytype) :: relax, tol, denom
 
     if (ellipsoid_schur_projection_iters.le.0) return
@@ -344,82 +345,105 @@ contains
     call allocate_vectors(max(1, nsy), sy_b, sy_r, sy_p, sy_ap, sy_lambda)
     call allocate_vectors(max(1, nsz), sz_b, sz_r, sz_p, sz_ap, sz_lambda)
 
-    sx_b = zero
-    sy_b = zero
-    sz_b = zero
-    call sample_field(ux1, uy1, uz1, sx_ap, sy_ap, sz_ap)
-    if (nsx.gt.0) sx_b(1:nsx) = body_sx(1:nsx) - sx_ap(1:nsx)
-    if (nsy.gt.0) sy_b(1:nsy) = body_sy(1:nsy) - sy_ap(1:nsy)
-    if (nsz.gt.0) sz_b(1:nsz) = body_sz(1:nsz) - sz_ap(1:nsz)
-
-    sx_r = sx_b
-    sy_r = sy_b
-    sz_r = sz_b
-    sx_p = sx_r
-    sy_p = sy_r
-    sz_p = sz_r
-    sx_lambda = zero
-    sy_lambda = zero
-    sz_lambda = zero
-
-    rr = schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r)
-    initial_rms = sqrt(rr / real(sample_count_global, mytype))
-    final_rms = initial_rms
-    iter_done = 0
-
-    if (initial_rms.gt.zero) then
-       do iter = 1, ellipsoid_schur_projection_iters
-          call schur_matvec(sx_p, sy_p, sz_p, sx_ap, sy_ap, sz_ap)
-          pap = schur_dot(sx_p, sy_p, sz_p, sx_ap, sy_ap, sz_ap)
-          if (pap.le.epsilon(one)) exit
-
-          alpha = rr / pap
-          if (nsx.gt.0) sx_lambda(1:nsx) = sx_lambda(1:nsx) + alpha * sx_p(1:nsx)
-          if (nsy.gt.0) sy_lambda(1:nsy) = sy_lambda(1:nsy) + alpha * sy_p(1:nsy)
-          if (nsz.gt.0) sz_lambda(1:nsz) = sz_lambda(1:nsz) + alpha * sz_p(1:nsz)
-
-          if (nsx.gt.0) sx_r(1:nsx) = sx_r(1:nsx) - alpha * sx_ap(1:nsx)
-          if (nsy.gt.0) sy_r(1:nsy) = sy_r(1:nsy) - alpha * sy_ap(1:nsy)
-          if (nsz.gt.0) sz_r(1:nsz) = sz_r(1:nsz) - alpha * sz_ap(1:nsz)
-
-          rr_new = schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r)
-          final_rms = sqrt(rr_new / real(sample_count_global, mytype))
-          iter_done = iter
-          if (final_rms.le.tol * max(initial_rms, epsilon(one))) exit
-
-          denom = max(rr, epsilon(one))
-          beta = rr_new / denom
-          if (nsx.gt.0) sx_p(1:nsx) = sx_r(1:nsx) + beta * sx_p(1:nsx)
-          if (nsy.gt.0) sy_p(1:nsy) = sy_r(1:nsy) + beta * sy_p(1:nsy)
-          if (nsz.gt.0) sz_p(1:nsz) = sz_r(1:nsz) + beta * sz_p(1:nsz)
-          rr = rr_new
-       enddo
-    endif
-
+    ! Outer passes: re-sample the CURRENT (already-corrected-by-previous-pass)
+    ! velocity field, re-solve, and re-apply, all within this one timestep's
+    ! call. Sample GEOMETRY (build_schur_samples above) is body-position-only
+    ! and does not change between passes; only the sampled velocity residual
+    ! does. With passes=1 this reduces exactly to the original single-pass
+    ! behaviour. Motivation: a single small-relax pass per timestep lets
+    ! advection re-introduce a fresh (and front/back-asymmetric) boundary
+    ! defect faster than one relaxed correction can remove it, so the
+    ! correction chases a moving target across many timesteps rather than
+    ! converging within one. Iterating the full correction here, before the
+    ! next advection step gets a chance to perturb things further, aims to
+    ! satisfy the constraint more completely per timestep instead.
     allocate(wx(xsize(1),xsize(2),xsize(3)))
     allocate(wy(xsize(1),xsize(2),xsize(3)))
     allocate(wz(xsize(1),xsize(2),xsize(3)))
-    call spread_vector(sx_lambda, sy_lambda, sz_lambda, wx, wy, wz)
-    call project_correction(wx, wy, wz)
-    call sample_field(wx, wy, wz, sx_ap, sy_ap, sz_ap)
 
-    if (nsx.gt.0) sx_r(1:nsx) = sx_b(1:nsx) - relax * sx_ap(1:nsx)
-    if (nsy.gt.0) sy_r(1:nsy) = sy_b(1:nsy) - relax * sy_ap(1:nsy)
-    if (nsz.gt.0) sz_r(1:nsz) = sz_b(1:nsz) - relax * sz_ap(1:nsz)
-    final_rms = sqrt(schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r) / real(sample_count_global, mytype))
-    correction_rms = sqrt(schur_dot(sx_ap, sy_ap, sz_ap, sx_ap, sy_ap, sz_ap) / &
-         real(sample_count_global, mytype))
+    npass = max(1, ellipsoid_schur_projection_passes)
+    iter_done = 0
+    pass1_rms = zero
+    final_rms = zero
+    correction_rms = zero
 
-    ux1(:,:,:) = ux1(:,:,:) + relax * wx(:,:,:)
-    uy1(:,:,:) = uy1(:,:,:) + relax * wy(:,:,:)
-    uz1(:,:,:) = uz1(:,:,:) + relax * wz(:,:,:)
-    sync_vel_needed = .true.
+    do pass = 1, npass
+       sx_b = zero
+       sy_b = zero
+       sz_b = zero
+       call sample_field(ux1, uy1, uz1, sx_ap, sy_ap, sz_ap)
+       if (nsx.gt.0) sx_b(1:nsx) = body_sx(1:nsx) - sx_ap(1:nsx)
+       if (nsy.gt.0) sy_b(1:nsy) = body_sy(1:nsy) - sy_ap(1:nsy)
+       if (nsz.gt.0) sz_b(1:nsz) = body_sz(1:nsz) - sz_ap(1:nsz)
+
+       sx_r = sx_b
+       sy_r = sy_b
+       sz_r = sz_b
+       sx_p = sx_r
+       sy_p = sy_r
+       sz_p = sz_r
+       sx_lambda = zero
+       sy_lambda = zero
+       sz_lambda = zero
+
+       rr = schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r)
+       initial_rms = sqrt(rr / real(sample_count_global, mytype))
+       if (pass.eq.1) pass1_rms = initial_rms
+       final_rms = initial_rms
+
+       if (initial_rms.gt.zero) then
+          do iter = 1, ellipsoid_schur_projection_iters
+             call schur_matvec(sx_p, sy_p, sz_p, sx_ap, sy_ap, sz_ap)
+             pap = schur_dot(sx_p, sy_p, sz_p, sx_ap, sy_ap, sz_ap)
+             if (pap.le.epsilon(one)) exit
+
+             alpha = rr / pap
+             if (nsx.gt.0) sx_lambda(1:nsx) = sx_lambda(1:nsx) + alpha * sx_p(1:nsx)
+             if (nsy.gt.0) sy_lambda(1:nsy) = sy_lambda(1:nsy) + alpha * sy_p(1:nsy)
+             if (nsz.gt.0) sz_lambda(1:nsz) = sz_lambda(1:nsz) + alpha * sz_p(1:nsz)
+
+             if (nsx.gt.0) sx_r(1:nsx) = sx_r(1:nsx) - alpha * sx_ap(1:nsx)
+             if (nsy.gt.0) sy_r(1:nsy) = sy_r(1:nsy) - alpha * sy_ap(1:nsy)
+             if (nsz.gt.0) sz_r(1:nsz) = sz_r(1:nsz) - alpha * sz_ap(1:nsz)
+
+             rr_new = schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r)
+             final_rms = sqrt(rr_new / real(sample_count_global, mytype))
+             iter_done = iter
+             if (final_rms.le.tol * max(initial_rms, epsilon(one))) exit
+
+             denom = max(rr, epsilon(one))
+             beta = rr_new / denom
+             if (nsx.gt.0) sx_p(1:nsx) = sx_r(1:nsx) + beta * sx_p(1:nsx)
+             if (nsy.gt.0) sy_p(1:nsy) = sy_r(1:nsy) + beta * sy_p(1:nsy)
+             if (nsz.gt.0) sz_p(1:nsz) = sz_r(1:nsz) + beta * sz_p(1:nsz)
+             rr = rr_new
+          enddo
+       endif
+
+       call spread_vector(sx_lambda, sy_lambda, sz_lambda, wx, wy, wz)
+       call project_correction(wx, wy, wz)
+       call sample_field(wx, wy, wz, sx_ap, sy_ap, sz_ap)
+
+       if (nsx.gt.0) sx_r(1:nsx) = sx_b(1:nsx) - relax * sx_ap(1:nsx)
+       if (nsy.gt.0) sy_r(1:nsy) = sy_b(1:nsy) - relax * sy_ap(1:nsy)
+       if (nsz.gt.0) sz_r(1:nsz) = sz_b(1:nsz) - relax * sz_ap(1:nsz)
+       final_rms = sqrt(schur_dot(sx_r, sy_r, sz_r, sx_r, sy_r, sz_r) / real(sample_count_global, mytype))
+       correction_rms = sqrt(schur_dot(sx_ap, sy_ap, sz_ap, sx_ap, sy_ap, sz_ap) / &
+            real(sample_count_global, mytype))
+
+       ux1(:,:,:) = ux1(:,:,:) + relax * wx(:,:,:)
+       uy1(:,:,:) = uy1(:,:,:) + relax * wy(:,:,:)
+       uz1(:,:,:) = uz1(:,:,:) + relax * wz(:,:,:)
+       sync_vel_needed = .true.
+    enddo
+
+    initial_rms = pass1_rms
 
     deallocate(wx, wy, wz)
 
     if (nrank.eq.0 .and. (mod(itime,ilist).eq.0 .or. itime.eq.ifirst .or. itime.eq.ilast)) then
        write(*,*) "Ellipsoid Schur projection: samples=", sample_count_global, &
-            " iterations=", iter_done, " residual rms initial/final=", initial_rms, final_rms, &
+            " passes=", npass, " iterations=", iter_done, " residual rms initial/final=", initial_rms, final_rms, &
             " correction rms=", correction_rms, " relax=", relax
 
        inquire(file="ellipsoid_schur_projection.dat", exist=file_exists)

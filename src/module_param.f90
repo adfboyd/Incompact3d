@@ -674,7 +674,7 @@ module ibm_param
   real(mytype) :: ellipsoid_schur_projection_relax, ellipsoid_schur_projection_tol
   real(mytype) :: ce(30),sh(30),ori(40), lv(30), av(30)
   integer :: inana ! Analytical BC as Input
-  integer :: imove, nozdrift, force_csv, bodies_fixed, cube_flag, torques_flag,orientations_free, shear_flow_ybc, shear_flow_zbc,torq_debug, torq_flip, ztorq_only, nbody, inviscid_output, div_visu_flag, ellipsoid_init_potential, ellipsoid_projection_slip_fix, ellipsoid_projection_flux_fix, ellipsoid_pressure_geometry_diag, ellipsoid_lagrange_projection_steps, ellipsoid_schur_projection_iters
+  integer :: imove, nozdrift, force_csv, bodies_fixed, cube_flag, torques_flag,orientations_free, shear_flow_ybc, shear_flow_zbc,torq_debug, torq_flip, ztorq_only, nbody, inviscid_output, div_visu_flag, ellipsoid_init_potential, ellipsoid_projection_slip_fix, ellipsoid_projection_flux_fix, ellipsoid_pressure_geometry_diag, ellipsoid_lagrange_projection_steps, ellipsoid_schur_projection_iters, ellipsoid_schur_projection_passes
 end module ibm_param
 !############################################################################
 !############################################################################

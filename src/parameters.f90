@@ -75,7 +75,8 @@ subroutine parameter(input_i3d)
       torques_flag, orientations_free, shear_flow_ybc, shear_flow_zbc, shear_velocity, torq_debug, torq_flip, ztorq_only, nbody, &
       inviscid_output, div_visu_flag, ellipsoid_init_potential, ellipsoid_projection_slip_fix, ellipsoid_projection_flux_fix, &
       ellipsoid_pressure_geometry_diag, ellipsoid_lagrange_projection_steps, ellipsoid_lagrange_projection_relax, &
-      ellipsoid_schur_projection_iters, ellipsoid_schur_projection_relax, ellipsoid_schur_projection_tol
+      ellipsoid_schur_projection_iters, ellipsoid_schur_projection_relax, ellipsoid_schur_projection_tol, &
+      ellipsoid_schur_projection_passes
   NAMELIST /ForceCVs/ xld, xrd, yld, yud, zld, zrd
   NAMELIST /LMN/ dens1, dens2, prandtl, ilmn_bound, ivarcoeff, ilmn_solve_temp, &
        massfrac, mol_weight, imultispecies, primary_species, &
@@ -801,6 +802,7 @@ subroutine parameter_defaults()
   ellipsoid_schur_projection_iters=0
   ellipsoid_schur_projection_relax=one
   ellipsoid_schur_projection_tol=1.0e-6_mytype
+  ellipsoid_schur_projection_passes=1
   ra(:) = 1.0
 
   !! Gravity field

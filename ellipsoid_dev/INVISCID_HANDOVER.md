@@ -1,6 +1,6 @@
 # Inviscid Ellipsoid Handover
 
-Date: 2026-06-30 (updated 2026-07-27)
+Date: 2026-06-30 (updated 2026-07-29)
 
 This branch contains experimental work for inviscid ellipsoid immersed-boundary
 treatment. Keep it separate from `ellipsoid-dev`, which is the validated viscous
@@ -9,6 +9,14 @@ ellipsoid branch.
 **2026-07-27 update: the core instability and force-symmetry bugs are fixed.**
 See "2026-07-27 Fixes" below before reading the rest of this doc — several
 items in "Validation State" and "Open Work" are now resolved.
+
+**2026-07-29 update: read this before relying on this branch for moving-body
+work.** Force/drag accuracy is now excellent, but the flow *field* is not
+fore-aft symmetric the way true inviscid flow requires, and this **cannot be
+fixed by parameter tuning** — every available lever was tried and eliminated.
+Fixing it needs a redesign of how the boundary condition is enforced (embed it
+in the pressure Poisson BC, not as a post-hoc correction). See "2026-07-29
+Update" below.
 
 ## Branch State
 
@@ -231,6 +239,109 @@ the whole point of this correction is that using transient snapshots is
 exactly what produced the wrong "no rescaling needed" conclusion in the
 first place.
 
+## 2026-07-29 Update: drag accuracy and field (fore-aft) symmetry are independent problems
+
+The user visually spotted that the flow field is not fore-aft symmetric
+around the sphere the way true inviscid flow should be, even though the
+2026-07-28 fixes drove net drag to near-zero. This is a real, important,
+and quantifiable finding, not something the drag fix already covers.
+
+**Zero net drag does not imply a symmetric field.** Left-right/top-bottom
+symmetry (`Fy=Fz=0`) is a pure mirror-geometry property, holds regardless
+of dissipation, and was already validated to machine precision. Fore-aft
+symmetry is different: it requires the flow to be genuinely reversible,
+and the compact filter added for stabilization is a dissipative
+mechanism. Even though the filter itself is spatially symmetric,
+dissipation removes energy that then gets carried *downstream* by
+advection (nothing carries it back upstream), producing a real
+velocity-deficit wake behind the body with no upstream counterpart —
+quantified directly from the raw snapshot fields (a small tool,
+`check_symmetry.py`, samples `ux` at matched upstream/downstream offsets
+from the body centre — see the derivation memory for the exact binary
+layout if reusing it). At the old `relax=0.008`, the deficit reached 40%+
+close to the body and was still ~5% at 30 grid points out.
+
+**Every readily-available tuning lever was tested and systematically
+eliminated as a fix for the wake:**
+
+- **Relax magnitude:** does not control how fast the wake builds up.
+  (An early comparison at *different* times made relax=0.05 look much
+  better than relax=0.002 — this was a flawed unequal-time comparison,
+  the same trap as the 07-28 mesh-independence mistake, applied to a new
+  quantity. Corrected: sampled both at the *same* early time and they
+  were equally clean. The wake is a time-accumulation effect, not a
+  per-step correction-strength effect.)
+- **Outer iteration:** implemented `ellipsoid_schur_projection_passes`
+  (new namelist flag, default 1 = old behaviour unchanged) to re-sample
+  and re-solve the correction multiple times per timestep, on the theory
+  that a single small-relax pass lets advection re-introduce the
+  asymmetric defect faster than one correction removes it. Tested
+  `passes=5` at matched long time (t=1.8): drag got *worse* (~-0.065 vs
+  ~0 for `passes=1`) and the wake was not better. More total correction
+  per timestep just behaves like a bigger effective relax — it doesn't
+  address the root cause.
+- **Filter/Schur call order — this one mattered, but only for drag.**
+  The filter used to run once per timestep, *before* the sub-timestep
+  loop; the Schur correction's own output was therefore never re-filtered
+  until the start of the *next* timestep, sitting unfiltered for a full
+  step. Moved the filter call (`src/xcompact3d.f90`) to run *after* the
+  sub-timestep loop (after the Schur/Lagrange corrections, before
+  `update_ellipsoid`) for `itype_ellip` specifically — ABL/turbine LES
+  filtering is untouched. Result at matched `t=1.8`, same `relax=0.002`:
+  **drag improved to `Fx≈-0.0005`, essentially exact** (from ~-0.04 with
+  the old order) — a genuine, independent improvement, keep it. But field
+  symmetry was unchanged (if anything marginally worse). This is the
+  cleanest evidence that drag and field symmetry are separate problems:
+  you can get one essentially perfect while the other stays exactly as
+  bad.
+- **Filter strength:** tried milder `C_filter` (0.499, 0.4999, vs the
+  shipped 0.49) on the theory that less dissipation means a smaller wake.
+  Both stayed numerically stable to `t=1.8`, but the wake did not shrink
+  — at `C_filter=0.4999` it was *worse* (0.43/0.37/0.35 at offsets
+  20/25/30 vs 0.31/0.14/0.05 at 0.499), because milder filtering lets the
+  underlying grid-scale numerical noise (the original bulk-instability
+  problem the filter exists to suppress) start contaminating the field —
+  visible directly as upstream `ux` exceeding 1.0 by 20-30%. There is no
+  sweet spot: filtering is either strong enough to keep the field clean
+  (and produces a wake) or weak enough to avoid the wake (and lets noise
+  back in).
+
+**Conclusion: the wake cannot be fixed by tuning within the current
+architecture.** A genuine fix means moving away from post-hoc velocity
+correction entirely — embedding the no-penetration constraint directly
+into the pressure Poisson equation's boundary condition (a modified
+Neumann condition on the immersed surface), so impermeability is enforced
+as part of solving for pressure rather than as a reactive correction
+applied after advection has already happened. This is a substantially
+bigger undertaking than anything in this document so far — it touches the
+core pressure solve used by every case type, not just `itype_ellip` — and
+should not be attempted without discussing scope first.
+
+**What changed in the codebase from this investigation:** the filter
+reorder (`src/xcompact3d.f90`) is a real, independent drag-accuracy
+improvement — kept regardless of the wake conclusion. The
+`ellipsoid_schur_projection_passes` outer-iteration flag
+(`src/navier.f90`, `src/module_param.f90`, `src/parameters.f90`) is
+backward-compatible (default 1, no behaviour change) and kept as tested
+infrastructure, but it does not fix anything by itself — don't present it
+as a solution if reusing it.
+
+**Caveat on existing relax values:** the 2026-07-28 relax retuning
+(`0.006` coarse, `0.002` baseline) was done under the *old* filter-before-
+Schur order. A spot check under the new order with the same `relax=0.002`
+still gives excellent (even better) drag at baseline resolution, but this
+was not independently re-derived from scratch under the new order. If
+tuning drag further, or working at a different resolution, re-validate
+under the current code rather than assuming the 07-28 numbers transfer
+exactly.
+
+**Bottom line for anyone using this for moving-body simulations:** force
+accuracy is now excellent. Wake/field-symmetry accuracy is not solved,
+and per the elimination above, cannot be solved by parameter tuning in
+this architecture — it needs the pressure-BC redesign described above.
+State this plainly to anyone relying on this branch for physically
+accurate wake structure, not just correct net forces.
+
 ## Validation State
 
 Do not treat this as finished. The trustworthy conclusions so far are:
@@ -309,6 +420,13 @@ cleanly.
 
 ## Open Work
 
+- **TOP PRIORITY, substantial scope: fore-aft field symmetry (the wake).**
+  See "2026-07-29 Update" above for the full elimination of every tuning
+  lever. The fix is architectural, not a parameter: enforce no-penetration
+  as part of the pressure Poisson boundary condition (modified Neumann on
+  the immersed surface) instead of as a post-hoc velocity correction after
+  advection. This touches the core pressure solve, not just the
+  `itype_ellip` correction layer — scope and discuss before starting.
 - ~~Confirm that the Schur correction remains compatible with moving and~~
   ~~rotating ellipsoids, not only spheres.~~ Done 2026-07-27: tested on a free
   (translating+rotating) non-spherical ellipsoid, stable and bounded.
