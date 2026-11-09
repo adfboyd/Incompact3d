@@ -4,23 +4,31 @@
 
 module actuator_line_model_utils
 
-    use decomp_2d, only: mytype
+    use decomp_2d_constants, only: mytype
     use param, only: zero, one, two
-    use dbg_schemes, only: sqrt_prec, cos_prec, exp_prec, sin_prec
+    use decomp_2d_mpi, only : decomp_2d_abort
     
     implicit none
-    public QuatRot, cross, IsoKernel, AnIsoKernel, int2str
+
+    interface trilinear_interpolation
+      module procedure trilinear_interpolation_scalar
+      module procedure trilinear_interpolation_vec3
+    end interface trilinear_interpolation
+
+    public QuatRot, cross, IsoKernel, AnIsoKernel, int2str, trilinear_interpolation
+
 contains
 
     !*******************************************************************************
     !
-    real(mytype) function trilinear_interpolation(x0,y0,z0, &
-                                                  x1,y1,z1, &
-                                                  x,y,z, &
-                                                  u000,u100,u001,u101, &
-                                                  u010,u110,u011,u111)
+    real(mytype) function trilinear_interpolation_scalar(x0,y0,z0, &
+                                                         x1,y1,z1, &
+                                                         x,y,z,    &
+                                                         u000,u100,u001,u101, &
+                                                         u010,u110,u011,u111)
     !
     !*******************************************************************************
+      use, intrinsic :: ieee_arithmetic
 
       implicit none
       real(mytype),intent(in) :: x0,y0,z0,x1,y1,z1,x,y,z,u000,u100,u001,u101,u010,u110,u011,u111
@@ -55,11 +63,78 @@ contains
       c1 = c01*(one-yd)+c11*yd
 
       ! Interpolate along Z
-      trilinear_interpolation=c0*(one-zd)+c1*zd
+      trilinear_interpolation_scalar=c0*(one-zd)+c1*zd
+
+      if(ieee_is_nan(trilinear_interpolation_scalar)) then
+        print*,'        x0:',x0,y0,z0
+        print*,'        x1:',x1,y1,z1
+        print*,'         x:',x,y,z
+        print*,'         u:',u000,u100,u001,u101,u010,u110,u011,u111
+
+        call decomp_2d_abort(1,"error in trilinear_interpolation_scalar")
+
+      endif
 
       return
 
-    end function trilinear_interpolation
+    end function trilinear_interpolation_scalar
+
+    function trilinear_interpolation_vec3(x0,y0,z0,x1,y1,z1,x,y,z, &
+                                          u000,u100,u001,u101,u010,u110,u011,u111) result(u)
+    !
+    !*******************************************************************************
+      use, intrinsic :: ieee_arithmetic
+
+      implicit none
+      real(mytype),intent(in) :: x0,y0,z0,x1,y1,z1,x,y,z
+      real(mytype),intent(in) :: u000(3),u100(3),u001(3),u101(3),u010(3),u110(3),u011(3),u111(3)
+      real(mytype) :: u(3)
+      real(mytype) :: c00(3),c01(3),c10(3),c11(3),c0(3),c1(3),xd,yd,zd
+
+      if (x1 .ne. x0) then
+         xd=(x-x0)/(x1-x0)
+      else
+         xd=0._mytype
+      endif
+
+      if (y1 .ne. y0) then
+         yd=(y-y0)/(y1-y0)
+      else
+         yd=0._mytype
+      endif
+
+      if (z1 .ne. z0) then
+         zd=(z-z0)/(z1-z0)
+      else
+         zd=0._mytype
+      endif
+
+      ! Interpolate along X
+      c00=u000*(1._mytype-xd)+u100*xd
+      c01=u001*(1._mytype-xd)+u101*xd
+      c10=u010*(1._mytype-xd)+u110*xd
+      c11=u011*(1._mytype-xd)+u111*xd
+
+      ! Interpolate along Y
+      c0 = c00*(1._mytype-yd)+c10*yd
+      c1 = c01*(1._mytype-yd)+c11*yd
+
+      ! Interpolate along Z
+      u=c0*(1._mytype-zd)+c1*zd
+
+      if(ieee_is_nan(u(1)) .or. ieee_is_nan(u(2)) .or. ieee_is_nan(u(3))) then
+        print*,'        x0:',x0,y0,z0
+        print*,'        x1:',x1,y1,z1
+        print*,'         x:',x,y,z
+        print*,'         u:',u000,u100,u001,u101,u010,u110,u011,u111
+
+        call decomp_2d_abort(1,"error in trilinear_interpolation_vec3")
+
+      endif
+
+      return
+
+    end function trilinear_interpolation_vec3
 
     !*******************************************************************************
     !
@@ -96,7 +171,7 @@ contains
       ! vR: Rotated vector
 
       ! Force normalize nR
-      RMag=sqrt_prec(Rx**2.0+Ry**2.0+Rz**2.0)
+      RMag=sqrt(Rx**2.0+Ry**2.0+Rz**2.0)
       nRx=Rx/RMag
       nRy=Ry/RMag
       nRz=Rz/RMag
@@ -108,7 +183,7 @@ contains
       p=reshape([zero,vOx,vOy,vOz],[4,1])
 
       ! Rotation quaternion and conjugate
-      q=(/cos_prec(Theta/2),nRx*sin_prec(Theta/2),nRy*sin_prec(Theta/2),nRz*sin_prec(Theta/2)/)
+      q=(/cos(Theta/2),nRx*sin(Theta/2),nRy*sin(Theta/2),nRz*sin(Theta/2)/)
       qbar=(/q(1),-q(2),-q(3),-q(4)/)
 
       QL=transpose(reshape((/q(1), -q(2), -q(3), -q(4), &
@@ -129,10 +204,6 @@ contains
 
     end subroutine QuatRot
 
-
-
-  
-
     !*******************************************************************************
     !
     subroutine IDW(Ncol,Xcol,Ycol,Zcol,Fxcol,Fycol,Fzcol,p,Xmesh,Ymesh,Zmesh,Fxmesh,Fymesh,Fzmesh)
@@ -151,7 +222,7 @@ contains
 
       wsum=zero
       do i=1,Ncol
-         d(i)=sqrt_prec((Xcol(i)-Xmesh)**2+(Ycol(i)-Ymesh)**2+(Zcol(i)-Zmesh)**2)
+         d(i)=sqrt((Xcol(i)-Xmesh)**2+(Ycol(i)-Ymesh)**2+(Zcol(i)-Zmesh)**2)
          w(i)=one/d(i)**p
          wsum=wsum+w(i)
       enddo
@@ -187,9 +258,9 @@ contains
       real(mytype), intent(in) :: dr, epsilon_par
 
       if (dim==2) then
-         IsoKernel = one/(epsilon_par**2*pi)*exp_prec(-(dr/epsilon_par)**2.0)
+         IsoKernel = one/(epsilon_par**2*pi)*exp(-(dr/epsilon_par)**2.0)
       else if (dim==3) then
-         IsoKernel = one/(epsilon_par**3.0*pi**1.5)*exp_prec(-(dr/epsilon_par)**2.0)
+         IsoKernel = one/(epsilon_par**3.0*pi**1.5)*exp(-(dr/epsilon_par)**2.0)
       else
          write(*,*) "1D source not implemented"
          stop
@@ -214,7 +285,7 @@ contains
       s=dx*sx+dy*sy+dz*sz ! Spanwise projection
 
       if (abs(s)<=es) then
-         AnIsoKernel = exp_prec(-((n/et)**2.0+(t/ec)**2.0))/(ec*et*pi)
+         AnIsoKernel = exp(-((n/et)**2.0+(t/ec)**2.0))/(ec*et*pi)
       else
          AnIsoKernel = zero
       endif

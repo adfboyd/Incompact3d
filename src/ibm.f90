@@ -4,6 +4,9 @@
 
 module ibm
 
+  use decomp_2d_constants
+  use decomp_2d_mpi, only : nrank
+
   public
 
 contains
@@ -12,7 +15,7 @@ contains
     USE param
     USE decomp_2d
     USE variables
-    
+
     implicit none
     integer :: i,j,k,nlock
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux,uy,uz,px,py,pz
@@ -49,7 +52,7 @@ contains
   !############################################################################
   subroutine body(ux1,uy1,uz1,ep1)
     use param, only : zero, one, dx, dz
-    use decomp_2d, only : xstart, xend, xsize, mytype, nrank
+    use decomp_2d, only : xstart, xend, xsize
     !use decomp_2d_io
     use variables, only : ny
     implicit none
@@ -343,8 +346,7 @@ contains
   subroutine polint(xa,ya,n,x,y,dy)
     !
     use decomp_2d
-    use dbg_schemes, only: abs_prec
-    !
+
     implicit none
     !
     integer,parameter            :: nmax=30
@@ -353,7 +355,7 @@ contains
     real(mytype),dimension(nmax) :: c,d
     real(mytype),dimension(n)    :: xa,ya
     ns=1
-    dif=abs_prec(x-xa(1))
+    dif=abs(x-xa(1))
     do i=1,n
        dift=abs(x-xa(i))
        if(dift.lt.dif)then
@@ -404,6 +406,8 @@ subroutine cubsplx(u,lind)
   USE ibm_param
   USE ellipsoid_utils, ONLY: CalculatePointVelocity_Multi, ibm_bcimp_calc
     !
+  USE decomp_2d_mpi, only : decomp_2d_abort
+  !
   implicit none
   !
   real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: u
@@ -415,7 +419,7 @@ subroutine cubsplx(u,lind)
   real(mytype)                                       :: xpol,ypol       ! Position and Value of the Reconstructed Solution 
   real(mytype),dimension(10)                         :: xa,ya           ! Position and Value of the Input Data Function 
   integer                                            :: ia,na           
-  integer                                            :: lind            ! Identifying which BC to Impose
+  integer                                            :: lind,lind_2            ! Identifying which BC to Impose
   real(mytype)                                       :: bcimp           ! Imposed BC 
   integer                                            :: inxi,inxf
   real(mytype)                                       :: ana_resi,ana_resf         ! Position of Boundary (Analytically)
@@ -427,13 +431,16 @@ subroutine cubsplx(u,lind)
   ya(:)=0.
   !
   ! Impose the Correct BC
-!   bcimp=lind  
-!   write(*,*) lind
-  !
+  if (itype.eq.itype_ellip) then !variable surface values
+   lind_2=-lind
+  else
+   lind_2=lind  
+  end if
+  
   do k=1,xsize(3)
-   zm=real(xstart(3)+k-1,mytype)*dz
+   zm=real(xstart(3)+k-2,mytype)*dz
      do j=1,xsize(2)
-      ym=real(xstart(2)+j-1,mytype)*dy
+      ym=real(xstart(2)+j-2,mytype)*dy
         if(nobjx(j,k).ne.0)then
            ia=0
            do i=1,nobjx(j,k)          
@@ -460,7 +467,7 @@ subroutine cubsplx(u,lind)
             !   endif
             !   write(*,*) "Radius = ", dummy
                ! write(*,*) "radius = ", dummy, "At point", point
-              call ibm_bcimp_calc(pointVelocity, lind, bcimp)
+              call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)
 
               ya(ia)=bcimp
               if(xi(i,j,k).gt.0.)then ! Immersed Object
@@ -517,9 +524,9 @@ subroutine cubsplx(u,lind)
             !   if ((dummy.gt.(1.01)).or.(dummy.lt.0.99)) then
             !    write(*,*) "At ", point, "r = ", dummy
             !   endif
-              call ibm_bcimp_calc(pointVelocity, lind, bcimp)  !take correct part of pointVelocity for equation type.
+              call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
-              ya(ia)=bcimp              
+              ya(ia)=bcimp
               if(xf(i,j,k).lt.xlx)then ! Immersed Object
                  inxf=0
                  ix=(xf(i,j,k)+dx)/dx+1
@@ -554,27 +561,28 @@ subroutine cubsplx(u,lind)
               endif
               ! Special Case
               if (xi(i,j,k).eq.xf(i,j,k)) then
-                  u(ipol,j,k)=bcimp                                   
+                 call decomp_2d_abort(1, "!! situation not supported by the IBM !!")
+                 !u(ipol,j,k)=bcimp
               else
               ! Cubic Spline Reconstruction
-		  na=ia
-		  do ipol=ipoli,ipolf
-		     if ((inxf.eq.1).and.(inxi.eq.1)) then ! If the Body Extends from the Inlet to the Outlet (Special Case)
-                 u(ipol,j,k)=bcimp                            
-             else
-		         xpol=dx*(ipol-1)
-		         if (xpol.eq.ana_resi) then
-		            u(ipol,j,k)=bcimp
-		         elseif (xpol.eq.ana_resf) then
-		            u(ipol,j,k)=bcimp
-		         else   
-		            call cubic_spline(xa,ya,na,xpol,ypol)
-		            u(ipol,j,k)=ypol
-		         endif
-		     endif
-		  enddo
-		  ia=0
-	      endif    
+                 na=ia
+                 do ipol=ipoli,ipolf
+                    if ((inxf.eq.1).and.(inxi.eq.1)) then ! If the Body Extends from the Inlet to the Outlet (Special Case)
+                       u(ipol,j,k)=bcimp
+                    else
+                       xpol=dx*(ipol-1)
+                       if (xpol.eq.ana_resi) then
+                          u(ipol,j,k)=bcimp
+                       elseif (xpol.eq.ana_resf) then
+                          u(ipol,j,k)=bcimp
+                       else
+                          call cubic_spline(xa,ya,na,xpol,ypol)
+                          u(ipol,j,k)=ypol
+                       endif
+                    endif
+                 enddo
+                 ia=0
+              endif
            enddo
         endif
      enddo
@@ -594,6 +602,7 @@ subroutine cubsply(u,lind)
   USE decomp_2d
   USE variables
   USE ibm_param
+  USE decomp_2d_mpi, only : decomp_2d_abort
   USE ellipsoid_utils, ONLY: CalculatePointVelocity_Multi, ibm_bcimp_calc
   !
   implicit none
@@ -607,7 +616,7 @@ subroutine cubsply(u,lind)
   real(mytype)                                       :: xpol,ypol,dypol ! Position and Value of the Reconstructed Solution 
   real(mytype),dimension(10)                         :: xa,ya           ! Position and Value of the Input Data Function 
   integer                                            :: ia,na           
-  integer                                            :: lind            ! Identifying which BC to Impose
+  integer                                            :: lind, lind_2            ! Identifying which BC to Impose
   real(mytype)                                       :: bcimp           ! Imposed BC 
   integer                                            :: inxi,inxf  
   real(mytype)                                       :: ana_resi,ana_resf
@@ -619,18 +628,20 @@ subroutine cubsply(u,lind)
   ya(:)=0.
   !
   ! Impose the Correct BC
-!   bcimp=lind  
-!   write(*,*) lind
-
+  if (itype.eq.itype_ellip) then 
+   lind_2 = -lind
+  else 
+   lind_2 = lind
+  endif
   !
   do k=1,ysize(3)
-   zm=real(ystart(3)+k-1,mytype)*dz
+   zm=real(ystart(3)+k-2,mytype)*dz
      do i=1,ysize(1)
-      xm=real(ystart(1)+i-1,mytype)*dx
+      xm=real(ystart(1)+i-2,mytype)*dx
         if(nobjy(i,k).ne.0)then
            ia=0
-           do j=1,nobjy(i,k)   
-            ! ym=real(ystart(2)+j-2,mytype)*dy       
+           do j=1,nobjy(i,k)
+            ! ym=real(ystart(2)+j-2,mytype)*dy
               !  1st Boundary
               nypif=npif
               ia=ia+1
@@ -644,8 +655,8 @@ subroutine cubsply(u,lind)
               ym = yi(j,i,k)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
-              
-              call ibm_bcimp_calc(pointVelocity, lind, bcimp)  !take correct part of pointVelocity for equation type.
+
+              call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
               ya(ia)=bcimp
               if(yi(j,i,k).gt.0.)then ! Immersed Object
@@ -699,8 +710,8 @@ subroutine cubsply(u,lind)
               ym = yf(j,i,k)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
-              
-              call ibm_bcimp_calc(pointVelocity, lind, bcimp)  !take correct part of pointVelocity for equation type.
+
+              call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
               ya(ia)=bcimp
               if(yf(j,i,k).lt.yly)then ! Immersed Object
@@ -741,23 +752,24 @@ subroutine cubsply(u,lind)
               endif
               ! Special Case
               if (yi(j,i,k).eq.yf(j,i,k)) then
-                  u(i,jpol,k)=bcimp                                   
+                 call decomp_2d_abort(1, "!! situation not supported by the IBM !!")
+                 !u(i,jpol,k)=bcimp
               else
-		  !calcul du polynôme
-		   na=ia
-		   do jpol=jpoli,jpolf
-		         xpol=yp(jpol)
-		         if (xpol.eq.ana_resi) then
-		            u(i,jpol,k)=bcimp
-		         elseif (xpol.eq.ana_resf) then
-		            u(i,jpol,k)=bcimp
-		         else   
-		            call cubic_spline(xa,ya,na,xpol,ypol)
-		            u(i,jpol,k)=ypol
-		         endif
-		   enddo
-		   ia=0
-	      endif    
+                 !calcul du polynôme
+                 na=ia
+                 do jpol=jpoli,jpolf
+                    xpol=yp(jpol)
+                    if (xpol.eq.ana_resi) then
+                       u(i,jpol,k)=bcimp
+                    elseif (xpol.eq.ana_resf) then
+                       u(i,jpol,k)=bcimp
+                    else
+                       call cubic_spline(xa,ya,na,xpol,ypol)
+                       u(i,jpol,k)=ypol
+                    endif
+                 enddo
+                 ia=0
+              endif
            enddo
         endif
      enddo
@@ -777,6 +789,7 @@ subroutine cubsplz(u,lind)
   USE decomp_2d
   USE variables
   USE ibm_param
+  USE decomp_2d_mpi, only : decomp_2d_abort
   USE ellipsoid_utils, ONLY: CalculatePointVelocity_Multi, ibm_bcimp_calc
   !
   implicit none
@@ -790,7 +803,7 @@ subroutine cubsplz(u,lind)
   real(mytype)                                       :: xpol,ypol,dypol !|variables concernant les polynômes
   real(mytype),dimension(10)                         :: xa,ya           !|de Lagrange. A mettre imérativement en 
   integer                                            :: ia,na           !|double précision
-  integer                                            :: lind            ! Identifying which BC to Impose
+  integer                                            :: lind, lind_2    ! Identifying which BC to Impose
   real(mytype)                                       :: bcimp           ! Imposed BC 
   integer                                            :: inxi,inxf  
   real(mytype)                                       :: ana_resi,ana_resf
@@ -803,14 +816,16 @@ subroutine cubsplz(u,lind)
   ya(:)=zero
   !
   ! Impose the Correct BC
-!   bcimp=lind  
-!   write(*,*) lind
-
+  if (itype.eq.itype_ellip) then
+   lind_2 = -lind
+  else 
+   lind_2 = lind
+  end if  
   !
   do j=1,zsize(2)
-   ym=real(zstart(2)+j-1,mytype)*dy
+   ym=real(zstart(2)+j-2,mytype)*dy
      do i=1,zsize(1)
-      xm=real(zstart(1)+i-1,mytype)*dx
+      xm=real(zstart(1)+i-2,mytype)*dx
         if(nobjz(i,j).ne.0)then
            ia=0
            do k=1,nobjz(i,j)          
@@ -828,8 +843,8 @@ subroutine cubsplz(u,lind)
               zm = zi(k,i,j)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
-              
-              call ibm_bcimp_calc(pointVelocity, lind, bcimp)  !take correct part of pointVelocity for equation type.
+
+              call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
               ya(ia)=bcimp
               if(zi(k,i,j).gt.0.)then ! Immersed Object
@@ -873,11 +888,11 @@ subroutine cubsplz(u,lind)
                  !call analitic_z(i,zf(k,i,j),ana_resf,j) ! Calculate the position of BC analytically
                  xa(ia)=ana_resf
               endif
-              zm = zi(k,i,j)
+              zm = zf(k,i,j)
               point=[xm,ym,zm]
               call CalculatePointVelocity_Multi(point, pointVelocity)
-              
-              call ibm_bcimp_calc(pointVelocity, lind, bcimp)  !take correct part of pointVelocity for equation type.
+
+              call ibm_bcimp_calc(pointVelocity, lind_2, bcimp)  !take correct part of pointVelocity for equation type.
 
               ya(ia)=bcimp
               if(zf(k,i,j).lt.zlz)then  ! Immersed Object
@@ -911,28 +926,29 @@ subroutine cubsplz(u,lind)
                     endif
                  enddo
               endif
-         !     ! Special Case
-         !     if (zi(k,i,j).eq.zf(k,i,j)) then
-         !         u(i,j,kpol)=bcimp                                   
-         !     else              
-    	      ! Cubic Spline Reconstruction
-	            na=ia
-	            do kpol=kpoli,kpolf 
-                          ! Special Case
-                          if (zi(k,i,j).eq.zf(k,i,j)) then
-                                u(i,j,kpol)=bcimp
-                          else
-	                    if ((inxf.eq.1).and.(inxi.eq.1)) then ! If the Body Extends from the Front to the Back (Special Case)
-	                          u(i,j,kpol)=bcimp                            
-	                     else              
-	                          xpol=dz*(kpol-1)
-	                          call cubic_spline(xa,ya,na,xpol,ypol)
-	                          u(i,j,kpol)=ypol
-	                     endif
-                           endif
-	            enddo
-	            ia=0
-         !     endif
+              ! Special Case
+              if (zi(k,i,j).eq.zf(k,i,j)) then
+                 !u(i,j,kpol)=bcimp
+                 call decomp_2d_abort(1, "!! situation not supported by the IBM !!")
+              else
+              ! Cubic Spline Reconstruction
+                 na=ia
+                 do kpol=kpoli,kpolf
+                 ! Special Case
+                    if (zi(k,i,j).eq.zf(k,i,j)) then
+                       u(i,j,kpol)=bcimp
+                    else
+                       if ((inxf.eq.1).and.(inxi.eq.1)) then ! If the Body Extends from the Front to the Back (Special Case)
+                          u(i,j,kpol)=bcimp
+                       else
+                          xpol=dz*(kpol-1)
+                          call cubic_spline(xa,ya,na,xpol,ypol)
+                          u(i,j,kpol)=ypol
+                       endif
+                    endif
+                 enddo
+                 ia=0
+              endif
            enddo
         endif
      enddo
@@ -1003,12 +1019,6 @@ subroutine cubic_spline(xa,ya,n,x,y)
    alpha(nc)= three*yprf - three*(aa(nc)-aa(nc-1))/hh(nc-1)
    !
    do i=2,nc-1
-      if (hh(i).lt.0.0004) then 
-       write(*,*) 'i = ', i, 'dividing by ', hh(i)
-      end if 
-      if (hh(i-1).lt.0.0004) then 
-         write(*,*) 'i = ', i, 'dividing by hh(i-1)=  ', hh(i)
-        end if 
       alpha(i)=(three/hh(i))*(aa(i+1)-aa(i))-(three/hh(i-1))*(aa(i)-aa(i-1))
    enddo
    ll(1)=two*hh(1)
@@ -1108,7 +1118,7 @@ end subroutine ana_x_cyl
 SUBROUTINE analitic_x(j,x_pos,ana_res,k)
 
   USE param, ONLY : itype, itype_cyl
-  USE decomp_2d, ONLY : mytype
+  USE decomp_2d_constants, ONLY : mytype
 !  USE cyl, ONLY : geomcomplex_cyl
 
   IMPLICIT NONE
@@ -1128,7 +1138,7 @@ END SUBROUTINE analitic_x
 SUBROUTINE analitic_y(i,y_pos,ana_res,k)
 
   USE param, ONLY : itype, itype_cyl
-  USE decomp_2d, ONLY : mytype
+  USE decomp_2d_constants, ONLY : mytype
 !  USE cyl, ONLY : geomcomplex_cyl
 
   IMPLICIT NONE

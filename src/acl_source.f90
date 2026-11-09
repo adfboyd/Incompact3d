@@ -4,11 +4,10 @@
 
 module actuator_line_source
 
-    use decomp_2d, only: mytype
-    use decomp_2d, only: real_type
+    use decomp_2d_constants, only : mytype
+    use decomp_2d_constants, only: real_type
     use variables, only: ilist
     use param, only: itime, zero, half, one
-    use dbg_schemes, only: sin_prec, sqrt_prec
     use actuator_line_model_utils
     use actuator_line_model
 
@@ -67,7 +66,6 @@ contains
 
       NSource=counter
       allocate(Sx(NSource),Sy(NSource),Sz(NSource),Sc(Nsource),Su(NSource),Sv(NSource),Sw(NSource),Se(NSource),Sh(NSource),Sfx(NSource),Sfy(NSource),Sfz(NSource))
-      allocate(Su_part(NSource),Sv_part(NSource),Sw_part(NSource))
       allocate(Snx(NSource),Sny(NSource),Snz(NSource),Stx(Nsource),Sty(NSource),Stz(NSource),Ssx(NSource),Ssy(NSource),Ssz(NSource),Ssegm(NSource))
       allocate(A(NSource,NSource))
       allocate(inside_the_domain(NSource))
@@ -257,7 +255,8 @@ contains
     !
     !*******************************************************************************
 
-      use decomp_2d, only: nproc, xstart, xend, xsize, update_halo
+      use decomp_2d_mpi, only: nproc
+      use decomp_2d, only: xstart, xend, xsize, update_halo
       use MPI
       use param, only: dx,dy,dz,eps_factor,xnu,istret,xlx,yly,zlz
       use var, only: ux1, uy1, uz1, FTx, FTy, FTz, yp
@@ -265,7 +264,9 @@ contains
       implicit none
       real(mytype), allocatable, dimension(:,:,:) :: ux1_halo, uy1_halo, uz1_halo
       real(mytype) :: xmesh, ymesh,zmesh
-      real(mytype) :: dist, epsilon, Kernel
+      real(mytype) :: dist, epsilon, kernel
+      real(mytype) :: dist2, dist2_max, epsilon2, prefactor, invepsilon2
+      real(mytype) :: distz2, disty2
       real(mytype) :: min_dist, ymax,ymin,zmin,zmax
       real(mytype) :: x0,y0,z0,x1,y1,z1,x,y,z,u000,u100,u001,u101,u010,u110,u011,u111
       real(mytype) :: t1,t2, alm_proj_time
@@ -304,9 +305,9 @@ contains
       !write(*,*) 'Rank=', nrank, 'X index Limits=', xstart(1), xend(1), 'X lims=', (xstart(1)-1)*dx, (xend(1)-1)*dx
       !write(*,*) 'Rank=', nrank, 'Y index Limits=', xstart(2), xend(2), 'Y lims=', ymin, ymax
       !write(*,*) 'Rank=', nrank, 'Z index Limits=', xstart(3), xend(3), 'Z lims=', zmin, zmax
-      call update_halo(ux1,ux1_halo,1,opt_global=.true.)
-      call update_halo(uy1,uy1_halo,1,opt_global=.true.)
-      call update_halo(uz1,uz1_halo,1,opt_global=.true.)
+      call update_halo(ux1,ux1_halo,1,opt_global=.true.,opt_pencil=1)
+      call update_halo(uy1,uy1_halo,1,opt_global=.true.,opt_pencil=1)
+      call update_halo(uz1,uz1_halo,1,opt_global=.true.,opt_pencil=1)
 
       do isource=1,NSource
          min_dist=1e6_mytype
@@ -319,7 +320,7 @@ contains
                   if (istret.ne.0) ymesh=yp(j)
                   do i=xstart(1),xend(1)
                      xmesh=real(i-1,mytype)*dx
-                     dist = sqrt_prec((Sx(isource)-xmesh)**2.+(Sy(isource)-ymesh)**2.+(Sz(isource)-zmesh)**2.)
+                     dist = sqrt((Sx(isource)-xmesh)**2.+(Sy(isource)-ymesh)**2.+(Sz(isource)-zmesh)**2.)
 
                      if (dist<min_dist) then
                         min_dist=dist
@@ -426,7 +427,7 @@ contains
             !endif
 
             ! Apply interpolation kernels from 8 neighboring nodes
-            Su_part(isource)=trilinear_interpolation(x0,y0,z0, &
+            Su(isource)=trilinear_interpolation(x0,y0,z0, &
                                                   x1,y1,z1, &
                                                   x,y,z, &
                                                   ux1_halo(i_lower,j_lower,k_lower), &
@@ -438,7 +439,7 @@ contains
                                                   ux1_halo(i_lower,j_upper,k_upper), &
                                                   ux1_halo(i_upper,j_upper,k_upper))
 
-             Sv_part(isource)=trilinear_interpolation(x0,y0,z0, &
+             Sv(isource)=trilinear_interpolation(x0,y0,z0, &
                                                   x1,y1,z1, &
                                                   x,y,z, &
                                                   uy1_halo(i_lower,j_lower,k_lower), &
@@ -450,7 +451,7 @@ contains
                                                   uy1_halo(i_lower,j_upper,k_upper), &
                                                   uy1_halo(i_upper,j_upper,k_upper))
 
-            Sw_part(isource)=trilinear_interpolation(x0,y0,z0, &
+            Sw(isource)=trilinear_interpolation(x0,y0,z0, &
                                                   x1,y1,z1, &
                                                   x,y,z, &
                                                   uz1_halo(i_lower,j_lower,k_lower), &
@@ -463,16 +464,16 @@ contains
                                                   uz1_halo(i_upper,j_upper,k_upper))
 
          else
-            Su_part(isource)=zero
-            Sv_part(isource)=zero
-            Sw_part(isource)=zero
+            Su(isource)=zero
+            Sv(isource)=zero
+            Sw(isource)=zero
             !write(*,*) 'Warning: I do not own this node'
          endif
       enddo
 
-      call MPI_ALLREDUCE(Su_part,Su,Nsource,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
-      call MPI_ALLREDUCE(Sv_part,Sv,Nsource,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
-      call MPI_ALLREDUCE(Sw_part,Sw,Nsource,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE,Su,Nsource,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE,Sv,Nsource,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE,Sw,Nsource,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
 
       ! Zero the Source term at each time step
       FTx(:,:,:)=zero
@@ -495,25 +496,33 @@ contains
       t1 = MPI_WTIME()
 
       ! Add the source term
-      do k=1,xsize(3)
-         zmesh=real(k+xstart(3)-1-1,mytype)*dz
-         do j=1,xsize(2)
-            if (istret.eq.0) ymesh=real(xstart(2)+j-1-1,mytype)*dy
-            if (istret.ne.0) ymesh=yp(xstart(2)+j-1)
-            do i=1,xsize(1)
-               xmesh=(i-1)*dx
-               do isource=1,NSource
-                  dist = sqrt_prec((Sx(isource)-xmesh)**2+(Sy(isource)-ymesh)**2+(Sz(isource)-zmesh)**2)
-                  epsilon=eps_factor*(dx*dy*dz)**(1.0/3.0)
-                  if (dist<10.0*epsilon) then
-                     Kernel= one/(epsilon**3.0*pi**1.5)*exp_prec(-(dist/epsilon)**2.0)
-                  else
-                     Kernel=zero
-                  endif
+      epsilon = (eps_factor*(dx*dy*dz)**(1._mytype/3._mytype)) ! FIXME compatible with stretching ?
+      epsilon2 = epsilon**2
+      dist2_max = 100._mytype * epsilon2
+      prefactor = 1._mytype/(epsilon**3*pi**1.5_mytype)
+      invepsilon2 = 1._mytype / epsilon2
+      do isource=1,NSource
+         do k=1,xsize(3)
+            zmesh=real(k+xstart(3)-1-1,mytype)*dz
+            distz2 = (Sz(isource)-zmesh)**2
+            if (distz2 > dist2_max) cycle
+            do j=1,xsize(2)
+               if (istret.eq.0) then
+                  ymesh=real(xstart(2)+j-1-1,mytype)*dy
+               else
+                  ymesh=yp(xstart(2)+j-1)
+               end if
+               disty2 = distz2 + (Sy(isource)-ymesh)**2
+               if (disty2 > dist2_max) cycle
+               do i=1,xsize(1)
+                  xmesh=(i-1)*dx
+                  dist2 = disty2 + (Sx(isource)-xmesh)**2
+                  if (dist2 > dist2_max) cycle
                   ! First apply a constant lift to induce the
-                  FTx(i,j,k)=FTx(i,j,k)-SFx(isource)*Kernel
-                  FTy(i,j,k)=FTy(i,j,k)-SFy(isource)*Kernel
-                  FTz(i,j,k)=FTz(i,j,k)-SFz(isource)*Kernel
+                  kernel = prefactor * exp( - dist2 * invepsilon2)
+                  FTx(i,j,k)=FTx(i,j,k)-SFx(isource)*kernel
+                  FTy(i,j,k)=FTy(i,j,k)-SFy(isource)*kernel
+                  FTz(i,j,k)=FTz(i,j,k)-SFz(isource)*kernel
                enddo
             enddo
          enddo

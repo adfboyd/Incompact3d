@@ -6,7 +6,7 @@ program xcompact3d
 
   use var
   use case
-
+  use MPI, only: MPI_COMM_WORLD
   use transeq, only : calculate_transeq_rhs
   use time_integrators, only : int_time
   use navier, only : velocity_to_momentum, momentum_to_velocity, pre_correc, &
@@ -16,13 +16,15 @@ program xcompact3d
   use ibm_param
   use ibm, only : body
   use genepsi, only : genepsi3d
-  use ellipsoid_utils, only: lin_step, ang_step, QuaternionNorm
-  use forces, only : force, init_forces, iforces,update_forces, xld,xrd,yld,yud,zld,zrd,torque_calc,nvol
+  use mhd,    only : Bm,mhd_equation,test_magnetic, &
+                     solve_poisson_mhd
+  use param, only : mhd_active
+  use particle, only : intt_particles
+
+  use ellip, only : update_ellipsoid, update_ellipsoid_cv, set_ellipsoid_cv_bounds
+  use cyl,   only : update_cylinder_state
   implicit none
-  real(mytype)  :: dummy,drag(10),lift(10),lat(10),grav_effy(10),grav_effx(10),grav_effz(10),xtorq(10),ytorq(10),ztorq(10),maxrad
-  integer :: iounit,ierr,i
-  real, dimension(100) :: x
-  character(len=30) :: filename!, filename2
+  integer :: iounit
 
 
 
@@ -30,35 +32,22 @@ program xcompact3d
 
   iounit = 135
   !Print forces out on ellip
-  if ((nrank==0).and.(force_csv.eq.1)) then 
+  if ((nrank==0).and.(force_csv.eq.1)) then
    open(unit=20, file='force_out.dat', status='unknown',form='formatted')
    ! if (ierr /= 0) then
    !    print *, 'Error opening file.'
    !    stop
    ! end if
-   write(*,*) 'Outputting forces' 
+   write(*,*) 'Outputting forces'
   end if
 
-  if (nrank==0) then
-   do i = 1,nbody
-      write(filename,"('body.dat',I1.1)") i
-      open(unit=11+i, file=filename, status='unknown', form='formatted')
-   enddo
-  endif
-!   do i = 1,100
-!    x(i) = i
-!   enddo
-!   open(unit=3, file='testcsv.dat', status='new',action='write',iostat=ierr)
 
-!   do i = 1,100
-!    write(3,*) x(i)
-!   enddo
 
-  
 
   do itime=ifirst,ilast
      !t=itime*dt
      t=t0 + (itime0 + itime + 1 - ifirst)*dt
+
      call simu_stats(2)
 
      if (iturbine.ne.0) call compute_turbines(ux1, uy1, uz1)
@@ -72,7 +61,6 @@ program xcompact3d
         call apply_spatial_filter(ux1,uy1,uz1,phi1)
      endif
 
-
      do itr=1,iadvance_time
 
         call set_fluid_properties(rho1,mu1)
@@ -81,29 +69,17 @@ program xcompact3d
         if (imove.eq.1) then ! update epsi for moving objects
           if ((iibm.eq.2).or.(iibm.eq.3)) then
              call genepsi3d(ep1)
-             do i = 1,nobjmax 
-               maxrad = max(shape(i,1),shape(i,2),shape(i,3))
-               if (iforces.eq.1) then
-                  xld(i) = position(i,1) - maxrad * ra(i) * cvl_scalar
-                  xrd(i) = position(i,1) + maxrad * ra(i) * cvl_scalar
-                  yld(i) = position(i,2) - maxrad * ra(i) * cvl_scalar
-                  yud(i) = position(i,2) + maxrad * ra(i) * cvl_scalar
-                  zld(i) = position(i,3) - maxrad * ra(i) * cvl_scalar
-                  zrd(i) = position(i,3) + maxrad * ra(i) * cvl_scalar
-                  ! write(*,*) "CV bounds = ", xld(i), xrd(i), yld(i), yud(i), zld(i), zrd(i)
-                  
-               endif
-            enddo
-            if (itime.eq.ifirst) then 
-               call init_forces()
-            else 
-               call update_forces()
-            endif
+             if (itype.eq.itype_cyl) then
+                call update_cylinder_state()
+             else if (itype.eq.itype_ellip) then
+                call update_ellipsoid_cv()
+             endif
           else if (iibm.eq.1) then
              call body(ux1,uy1,uz1,ep1)
           endif
         endif
         call calculate_transeq_rhs(drho1,dux1,duy1,duz1,dphi1,rho1,ux1,uy1,uz1,ep1,phi1,divu3)
+
 #ifdef DEBG
         call check_transients()
 #endif
@@ -117,8 +93,12 @@ program xcompact3d
         call pre_correc(ux1,uy1,uz1,ep1)
 
         call calc_divu_constraint(divu3,rho1,phi1)
-        call solve_poisson(pp3,px1,py1,pz1,rho1,ux1,uy1,uz1,ep1,drho1,divu3)
+        call solve_poisson(div_visu_var,pp3,px1,py1,pz1,rho1,ux1,uy1,uz1,ep1,drho1,divu3)
         call cor_vel(ux1,uy1,uz1,px1,py1,pz1)
+
+        if(mhd_active .and. mhd_equation == 'induction') then
+          call solve_poisson_mhd()
+        endif
 
         if (ilmn) then
            call momentum_to_velocity(rho1,ux1,uy1,uz1)
@@ -128,99 +108,21 @@ program xcompact3d
         
         call test_flow(rho1,ux1,uy1,uz1,phi1,ep1,drho1,divu3)
 
-        !Add force calculation here
-      !   if (nrank.eq.0) then 
-      !   write(*,*) 'Going to call force from xcompact3d, itr = ', itr
-      !   endif 
-        call force(ux1,uy1,uz1,ep1,drag,lift,lat,1)
-        grav_effx = grav_x*(rho_s-1.0)
-        grav_effy = grav_y*(rho_s-1.0)
-        grav_effz = grav_z*(rho_s-1.0)
-        do i = 1,nbody
-         linearForce(i,:) = [drag(i)-grav_effx(i), lift(i)-grav_effy(i), lat(i)-grav_effz(i)]
-        enddo
-        if (nozdrift==1) then
-            linearForce(:,3)=zero
-        endif
-
-        if (bodies_fixed==1) then
-            linearForce(:,:)=zero
-        endif
-
-        if ((nrank==0).and.(force_csv.eq.1)) then
-         ! open(unit=20, file='force_out.dat', action='write')
-         write(20, *) linearForce(1,1), linearForce(1,2), linearForce(1,3)
-         write(*,*) 'Writing forces', linearForce(1,1), linearForce(1,2), linearForce(1,3)
-         flush(20)
-        endif 
-        
-        
-        if (torques_flag.eq.1) then 
-         call torque_calc(ux1,uy1,uz1,ep1,xtorq,ytorq,ztorq,1)
-        endif 
-        if (orientations_free.eq.1) then 
-         do i = 1,nvol 
-            torque(i,:) = [xtorq(i), ytorq(i), ztorq(i)]
-         enddo
-         if (ztorq_only.eq.1) then
-            torque(:,1) = zero
-            torque(:,2) = zero
-         endif
-        else 
-         torque(:,:) = zero
-        endif
-      !   if (nrank==0) then
-
-      !   if (bodies_fixed==0) then 
-        do i = 1,nvol
-
-         call lin_step(position(i,:),linearVelocity(i,:),linearForce(i,:),ellip_m(i),dt,position_1,linearVelocity_1)
-         call ang_step(orientation(i,:),angularVelocity(i,:),torque(i,:),inertia(i,:,:),dt,orientation_1,angularVelocity_1)
-        
-         position(i,:) = position_1
-         linearVelocity(i,:) = linearVelocity_1
-
-         orientation(i,:) = orientation_1
-         angularVelocity(i,:) = angularVelocity_1
-        enddo
-
-
-      if ((nrank==0).and.(mod(itime,ilist)==0)) then
-         do i = 1,nbody
-            write(11+i ,*) t, position(i,1), position(i,2), position(i,3), orientation(i,1), orientation(i,2), orientation(i,3), orientation(i,4), linearVelocity(i,1), linearVelocity(i,2), linearVelocity(i,3), angularVelocity(i,2), angularVelocity(i,3), angularVelocity(i,4), linearForce(i,1), linearForce(i,2), linearForce(i,3), torque(i,1), torque(i,2), torque(i,3)
-            flush(11+i)
-         enddo
-      endif
-
-         if ((nrank==0).and.(mod(itime,ilist)==0)) then 
-            do i = 1,nbody
-               write(*,*) "Body", i
-               write(*,*) "Position =         ", position(i,:)
-               write(*,*) "Orientation =      ", orientation(i,:)
-               write(*,*) "Linear velocity =  ", linearVelocity(i,:)
-               write(*,*) "Angular velocity = ", angularVelocity(i,:)
-               write(*,*) "Linear Force = ", linearForce(i,:)
-               write(*,*) "Torque = ", torque(i,:)
-            enddo
-         ! call QuaternionNorm(angularVelocity,dummy)
-
-         ! write(*,*) 'Norm of angvel = ', dummy
-         endif   
-
-      !   endif 
-
-      !   if (nrank==0) then 
-      !    write(*,*) 'Centroid position is ', position
-      !    write(*,*) 'Orientation is ', orientation
-      !   end if
+        if(mhd_active) call test_magnetic
 
      enddo !! End sub timesteps
+
+     if (itype.eq.itype_ellip) call update_ellipsoid(ux1, uy1, uz1, ep1)
+
+     if(particle_active) then
+       call intt_particles(ux1,uy1,uz1,t)
+     endif
 
      call restart(ux1,uy1,uz1,dux1,duy1,duz1,ep1,pp3(:,:,:,1),phi1,dphi1,px1,py1,pz1,rho1,drho1,mu1,1)
 
      call simu_stats(3)
 
-     call postprocessing(rho1,ux1,uy1,uz1,pp3,phi1,ep1)
+     call postprocessing(rho1,ux1,uy1,uz1,pp3, div_visu_var, phi1,ep1)
 
   enddo !! End time loop
 
@@ -247,14 +149,16 @@ subroutine init_xcompact3d()
   use tools, only : test_speed_min_max, test_scalar_min_max, &
        restart, &
        simu_stats, compute_cfldiff, &
-       init_inflow_outflow
+       init_inflow_outflow, read_inflow
 
-  use param, only : ilesmod, jles,itype
-  use param, only : irestart
+  use param, only : ilesmod, jles, itype, itype_ellip
+  use param, only : irestart, mhd_active
+  use ellip, only : set_ellipsoid_cv_bounds, init_body_dat
+  use param, only : periodic_bc
 
   use variables, only : nx, ny, nz, nxm, nym, nzm
   use variables, only : p_row, p_col
-  use variables, only : nstat, nvisu, nprobe, ilist
+  use variables, only : nstat, nvisu, ilist
 
   use les, only: init_explicit_les
   use turbine, only: init_turbines
@@ -265,10 +169,13 @@ subroutine init_xcompact3d()
   use ibm, only : body
 
   use probes, only : init_probes
-!   use case, only : param_assign
+
+  use mhd, only: mhd_init
+  use particle,  only : particle_report,local_domain_size
+
   implicit none
 
-  integer :: ierr
+  integer :: ierr, iv
 
   integer :: nargin, FNLength, status, DecInd
   logical :: back
@@ -309,11 +216,11 @@ subroutine init_xcompact3d()
   
   call parameter(InputFN)
 
-  call decomp_2d_init(nx,ny,nz,p_row,p_col)
+  call decomp_2d_init(nx,ny,nz,p_row,p_col,periodic_bc)
+
   call decomp_2d_io_init()
   call init_coarser_mesh_statS(nstat,nstat,nstat,.true.)    !start from 1 == true
   call init_coarser_mesh_statV(nvisu,nvisu,nvisu,.true.)    !start from 1 == true
-  call init_coarser_mesh_statP(nprobe,nprobe,nprobe,.true.) !start from 1 == true
   !div: nx ny nz --> nxm ny nz --> nxm nym nz --> nxm nym nzm
   call decomp_info_init(nxm, nym, nzm, ph1)
   call decomp_info_init(nxm, ny, nz, ph4)
@@ -322,7 +229,9 @@ subroutine init_xcompact3d()
   call decomp_info_init(nxm, nym, nz, ph3)
 
   call init_variables()
-  call param_assign()
+  if (itype.eq.itype_ellip) then
+     call param_assign()
+  endif
 
   call schemes()
 
@@ -342,11 +251,24 @@ subroutine init_xcompact3d()
   endif
 
   if (iforces.eq.1) then
-   !   call init_forces()
+     call init_forces()
      if (irestart==1) then
         call restart_forces(0)
      endif
   endif
+
+  !####################################################################
+  ! initialise mhd
+  if (mhd_active) call mhd_init()
+
+  !####################################################################
+  ! initialise particles
+  if (particle_active) then
+    call particle_report('input')
+
+    call local_domain_size
+  endif
+
 
   !####################################################################
   ! initialise visu
@@ -369,15 +291,32 @@ subroutine init_xcompact3d()
         call init_sandbox(ux1,uy1,uz1,ep1,phi1,1)
      end if
      call restart(ux1,uy1,uz1,dux1,duy1,duz1,ep1,pp3(:,:,:,1),phi1,dphi1,px1,py1,pz1,rho1,drho1,mu1,0)
+     ! Body state is now loaded — open body.dat files for append and update CV bounds
+     if (itype.eq.itype_ellip) call init_body_dat()
+     if (itype.eq.itype_ellip .and. iforces.eq.1) then
+        call set_ellipsoid_cv_bounds()
+        call update_forces()
+        if (nrank==0) then
+           write(*,*) '====CV bounds updated from restarted body position===='
+           do iv=1,nvol
+              write(*,"('  CV #',I1,' xld=',F8.4,' xrd=',F8.4,' icvlf=',I6,' icvrt=',I6)") &
+                   iv, xld(iv), xrd(iv), icvlf(iv), icvrt(iv)
+           enddo
+           write(*,*) '======================================================'
+        endif
+     endif
   endif
 
   if ((ioutflow.eq.1).or.(iin.eq.3)) then
      call init_inflow_outflow()
+     if ((irestart==1).and.(iin.eq.3)) then
+        call read_inflow(ux_inflow,uy_inflow,uz_inflow,itime/ntimesteps)
+     endif
   end if
 
   if ((iibm.eq.2).or.(iibm.eq.3)) then
      call genepsi3d(ep1)
-  else if ((iibm.eq.1).or.(iibm.eq.3)) then
+  else if (iibm.eq.1) then
      call body(ux1,uy1,uz1,ep1)
   endif
 
@@ -397,11 +336,21 @@ subroutine init_xcompact3d()
   if (itype==2) then
      if(nrank.eq.0)then
         open(42,file='time_evol.dat',form='formatted')
+        if(mhd_active) then
+           open(43,file='mhd_time_evol.dat',form='formatted')
+        endif
      endif
   endif
-  if (itype==5) then
+
+  if (iforces == 1) then
      if(nrank.eq.0)then
         open(38,file='forces.dat',form='formatted')
+     endif
+  endif
+
+  if (itype==10) then
+     if(nrank.eq.0)then
+        open(42,file='shear.dat',form='formatted')
      endif
   endif
 
@@ -411,14 +360,18 @@ endsubroutine init_xcompact3d
 subroutine finalise_xcompact3d()
 
   use MPI
+  use decomp_2d_mpi
   use decomp_2d
   use decomp_2d_io, only : decomp_2d_io_finalise
 
   use tools, only : simu_stats
-  use param, only : itype, jles, ilesmod
+  use param, only : itype, jles, ilesmod, mhd_active
   use probes, only : finalize_probes
   use visu, only : visu_finalise
   use les, only: finalise_explicit_les
+  use mhd, only: mhd_fin
+  use case, only: visu_case_finalise
+  use forces, only: iforces
 
   implicit none
 
@@ -427,17 +380,29 @@ subroutine finalise_xcompact3d()
   if (itype==2) then
      if(nrank.eq.0)then
         close(42)
+        if(mhd_active) then
+           close(43)
+        endif
      endif
   endif
-  if (itype==5) then
+
+  if (iforces == 1) then
      if(nrank.eq.0)then
         close(38)
      endif
   endif
-  
+
+  if (itype==10) then
+     if(nrank.eq.0)then
+        close(42)
+     endif
+  endif
+
   call simu_stats(4)
   call finalize_probes()
+  call visu_case_finalise()
   call visu_finalise()
+  if (mhd_active) call mhd_fin()
   if (ilesmod.ne.0) then
      if (jles.gt.0) call finalise_explicit_les()
   endif
@@ -449,25 +414,26 @@ endsubroutine finalise_xcompact3d
 
 subroutine check_transients()
 
-  use decomp_2d, only : mytype
+  use decomp_2d_constants, only : mytype
   use mpi
   use var
   
   implicit none
 
-  real(mytype) :: dep, dep1
+  real(mytype) :: dep
   integer :: code
    
   dep=maxval(abs(dux1))
-  call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-  if (nrank == 0) write(*,*)'## MAX dux1 ', dep1
+  call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+  if (nrank == 0) write(*,*)'## MAX dux1 ', dep
  
   dep=maxval(abs(duy1))
-  call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-  if (nrank == 0) write(*,*)'## MAX duy1 ', dep1
+  call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+  if (nrank == 0) write(*,*)'## MAX duy1 ', dep
  
   dep=maxval(abs(duz1))
-  call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-  if (nrank == 0) write(*,*)'## MAX duz1 ', dep1
+  call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+  if (nrank == 0) write(*,*)'## MAX duz1 ', dep
   
 end subroutine check_transients
+

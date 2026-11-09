@@ -4,11 +4,15 @@
 
 module navier
 
+  use decomp_2d_constants
+  use decomp_2d_mpi
+  use decomp_2d
+
   implicit none
 
   private
 
-  public :: solve_poisson, divergence, calc_divu_constraint
+  public :: solve_poisson, divergence,divergence2, calc_divu_constraint
   public :: pre_correc, cor_vel
   public :: lmn_t_to_rho_trans, momentum_to_velocity, velocity_to_momentum
   public :: gradp, tbl_flrt
@@ -20,9 +24,8 @@ contains
   !! DESCRIPTION: Takes the intermediate momentum field as input,
   !!              computes div and solves pressure-Poisson equation.
   !############################################################################
-  SUBROUTINE solve_poisson(pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, drho1, divu3)
+  SUBROUTINE solve_poisson(div_visu_var, pp3, px1, py1, pz1, rho1, ux1, uy1, uz1, ep1, drho1, divu3)
 
-    USE decomp_2d, ONLY : mytype, xsize, zsize, ph1, nrank, real_type
     USE decomp_2d_poisson, ONLY : poisson
     USE var, ONLY : nzmsize
     USE var, ONLY : dv3
@@ -40,7 +43,7 @@ contains
     REAL(mytype), DIMENSION(zsize(1), zsize(2), zsize(3)), INTENT(IN) :: divu3
 
     !! Outputs
-    REAL(mytype), DIMENSION(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize, npress) :: pp3
+    REAL(mytype), DIMENSION(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize, npress) :: pp3, div_visu_var
     REAL(mytype), DIMENSION(xsize(1), xsize(2), xsize(3)) :: px1, py1, pz1
 
     !! Locals
@@ -48,14 +51,14 @@ contains
     LOGICAL :: converged
     REAL(mytype) :: atol, rtol, rho0, divup3norm
 #ifdef DEBG
-    real(mytype) :: dep, dep1
+    real(mytype) :: dep
     integer :: code
 #endif
 
     nlock = 1 !! Corresponds to computing div(u*)
     converged = .FALSE.
     poissiter = 0
-    rho0 = one
+    call calc_rho0(rho1(:,:,:,1), rho0)
 #ifdef DOUBLE_PREC
     atol = 1.0e-14_mytype !! Absolute tolerance for Poisson solver
     rtol = 1.0e-14_mytype !! Relative tolerance for Poisson solver
@@ -70,7 +73,7 @@ contains
        CALL momentum_to_velocity(rho1, ux1, uy1, uz1)
     ENDIF
 
-    CALL divergence(pp3(:,:,:,1),rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
+    call divergence(div_visu_var(:,:,:,1),pp3(:,:,:,1),rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
     IF (ilmn.AND.ivarcoeff) THEN
        dv3(:,:,:) = pp3(:,:,:,1)
     ENDIF
@@ -82,8 +85,7 @@ contains
 
           IF (.NOT.converged) THEN
              !! Evaluate additional RHS terms
-             CALL calc_varcoeff_rhs(pp3(:,:,:,1), rho1, px1, py1, pz1, dv3, drho1, ep1, divu3, rho0, &
-                  poissiter)
+             CALL calc_varcoeff_rhs(pp3(:,:,:,1), rho1, px1, py1, pz1, dv3, drho1, ep1, divu3, rho0)
           ENDIF
 
        ENDIF
@@ -91,31 +93,31 @@ contains
        IF (.NOT.converged) THEN
 #ifdef DEBG
           dep=maxval(abs(pp3(:,:,:,1)))
-          call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-          if (nrank == 0) write(*,*)'## Solve Poisson before1 pp3', dep1
+          call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+          if (nrank == 0) write(*,*)'## Solve Poisson before1 pp3', dep
 #endif
           CALL poisson(pp3(:,:,:,1))
 #ifdef DEBG
           dep=maxval(abs(pp3(:,:,:,1)))
-          call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-          if (nrank == 0) write(*,*)'## Solve Poisson after call  pp3', dep1
+          call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+          if (nrank == 0) write(*,*)'## Solve Poisson after call  pp3', dep
 #endif
 
           !! Need to update pressure gradient here for varcoeff
           CALL gradp(px1,py1,pz1,pp3(:,:,:,1))
 #ifdef DEBG
           dep=maxval(abs(pp3(:,:,:,1)))
-          call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-          if (nrank == 0) write(*,*)'## Solve Poisson pp3', dep1
+          call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+          if (nrank == 0) write(*,*)'## Solve Poisson pp3', dep
           dep=maxval(abs(px1))
-          call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-          if (nrank == 0) write(*,*)'## Solve Poisson px', dep1
+          call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+          if (nrank == 0) write(*,*)'## Solve Poisson px', dep
           dep=maxval(abs(py1))
-          call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-          if (nrank == 0) write(*,*)'## Solve Poisson py', dep1
+          call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+          if (nrank == 0) write(*,*)'## Solve Poisson py', dep
           dep=maxval(abs(pz1))
-          call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-          if (nrank == 0) write(*,*)'## Solve Poisson pz', dep1
+          call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+          if (nrank == 0) write(*,*)'## Solve Poisson pz', dep
 #endif
          
 
@@ -150,7 +152,6 @@ contains
   !############################################################################
   SUBROUTINE lmn_t_to_rho_trans(drho1, dtemp1, rho1, dphi1, phi1)
 
-    USE decomp_2d
     USE param, ONLY : zero
     USE param, ONLY : imultispecies, massfrac, mol_weight
     USE param, ONLY : ntime
@@ -204,7 +205,6 @@ contains
   !############################################################################
   subroutine cor_vel (ux,uy,uz,px,py,pz)
 
-    USE decomp_2d
     USE variables
     USE param
     USE mpi
@@ -214,29 +214,29 @@ contains
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux,uy,uz
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(in) :: px,py,pz
 #ifdef DEBG
-    real(mytype) :: dep, dep1
+    real(mytype) :: dep
     integer :: code
 #endif
 
 #ifdef DEBG
         dep=maxval(abs(ux))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Cor Vel ux', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Cor Vel ux', dep
         dep=maxval(abs(uy))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Cor Vel uy', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Cor Vel uy', dep
         dep=maxval(abs(uz))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Cor Vel uz', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Cor Vel uz', dep
         dep=maxval(abs(px))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Cor Vel px', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Cor Vel px', dep
         dep=maxval(abs(py))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Cor Vel py', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Cor Vel py', dep
         dep=maxval(abs(pz))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Cor Vel pz', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Cor Vel pz', dep
 #endif
 
     ux(:,:,:)=ux(:,:,:)-px(:,:,:)
@@ -254,10 +254,9 @@ contains
   ! output : pp3 (on pressure mesh)
   !written by SL 2018
   !############################################################################
-  subroutine divergence (pp3,rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
+  subroutine divergence (div_visu_var,pp3,rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
 
     USE param
-    USE decomp_2d
     USE variables
     USE var, ONLY: ta1, tb1, tc1, pp1, pgy1, pgz1, di1, &
          duxdxp2, uyp2, uzp2, duydypi2, upi2, ta2, dipp2, &
@@ -276,11 +275,14 @@ contains
     real(mytype),dimension(xsize(1),xsize(2),xsize(3),nrhotime),intent(in) :: rho1
     !Z PENCILS NXM NYM NZ  -->NXM NYM NZM
     real(mytype),dimension(zsize(1),zsize(2),zsize(3)),intent(in) :: divu3
-    real(mytype),dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize) :: pp3
     real(mytype),dimension(xsize(1),xsize(2),xsize(3))     :: ep1_ux,ep1_uy,ep1_uz
+    real(mytype),dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize),intent(out) :: pp3,div_visu_var
+   !  real(mytype),dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize) :: div_visu_var
+
+
     integer :: nvect3,i,j,k,nlock
     integer :: code
-    real(mytype) :: tmax,tmoy,tmax1,tmoy1
+    real(mytype) :: tmax,tmoy,pres_ref
 
     nvect3=(ph1%zen(1)-ph1%zst(1)+1)*(ph1%zen(2)-ph1%zst(2)+1)*nzmsize
 
@@ -294,9 +296,9 @@ contains
        tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1_uy(:,:,:)
        tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1_uz(:,:,:)
     else
-       ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*lvx
-       tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*lvy
-       tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*lvz
+       ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ubcx
+       tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ubcy
+       tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ubcz
     endif
 
     !WORK X-PENCILS
@@ -346,7 +348,11 @@ contains
     pp3(:,:,:) = pp3(:,:,:) + po3(:,:,:)
 
     if (nlock==2) then
-       pp3(:,:,:)=pp3(:,:,:)-pp3(ph1%zst(1),ph1%zst(2),nzmsize)
+       ! Line below sometimes generates issues with Intel
+       !pp3(:,:,:)=pp3(:,:,:)-pp3(ph1%zst(1),ph1%zst(2),nzmsize)
+       ! Using a tmp variable seems to sort the issue
+       pres_ref = pp3(ph1%zst(1),ph1%zst(2),nzmsize)
+       pp3(:,:,:)=pp3(:,:,:)-pres_ref
     endif
 
     tmax=-1609._mytype
@@ -359,21 +365,150 @@ contains
           enddo
        enddo
     enddo
-    tmoy=tmoy/nvect3
-
-    call MPI_REDUCE(tmax,tmax1,1,real_type,MPI_MAX,0,MPI_COMM_WORLD,code)
-    call MPI_REDUCE(tmoy,tmoy1,1,real_type,MPI_SUM,0,MPI_COMM_WORLD,code)
+    tmoy=tmoy/real(nvect3,mytype)
+    call MPI_ALLREDUCE(MPI_IN_PLACE, tmoy, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+    call MPI_ALLREDUCE(MPI_IN_PLACE, tmax, 1, real_type, MPI_MAX, MPI_COMM_WORLD, code)
 
     if ((nrank == 0) .and. (nlock > 0).and.(mod(itime, ilist) == 0 .or. itime == ifirst .or. itime==ilast)) then
        if (nlock == 2) then
-          write(*,*) 'DIV U  max mean=',real(tmax1,mytype),real(tmoy1/real(nproc),mytype)
+          write(*,*) 'DIV U  max mean=',real(tmax,mytype),real(tmoy/real(nproc),mytype)
        else
-          write(*,*) 'DIV U* max mean=',real(tmax1,mytype),real(tmoy1/real(nproc),mytype)
+          write(*,*) 'DIV U* max mean=',real(tmax,mytype),real(tmoy/real(nproc),mytype)
        endif
     endif
 
+    div_visu_var(:,:,:)=pp3(:,:,:)
+
     return
   end subroutine divergence
+
+  subroutine divergence2(pp3,rho1,ux1,uy1,uz1,ep1,drho1,divu3,nlock)
+
+   USE param
+   USE variables
+   USE var, ONLY: ta1, tb1, tc1, pp1, pgy1, pgz1, di1, &
+        duxdxp2, uyp2, uzp2, duydypi2, upi2, ta2, dipp2, &
+        duxydxyp3, uzp3, po3, dipp3, nxmsize, nymsize, nzmsize
+   USE MPI
+   USE ibm_param
+   USE ellipsoid_utils, ONLY: navierFieldGen
+
+   implicit none
+
+   !  TYPE(DECOMP_INFO) :: ph1,ph3,ph4
+
+   !X PENCILS NX NY NZ  -->NXM NY NZ
+   real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(in) :: ux1,uy1,uz1,ep1
+   real(mytype),dimension(xsize(1),xsize(2),xsize(3),ntime),intent(in) :: drho1
+   real(mytype),dimension(xsize(1),xsize(2),xsize(3),nrhotime),intent(in) :: rho1
+   !Z PENCILS NXM NYM NZ  -->NXM NYM NZM
+   real(mytype),dimension(zsize(1),zsize(2),zsize(3)),intent(in) :: divu3
+   real(mytype),dimension(xsize(1),xsize(2),xsize(3))     :: ep1_ux,ep1_uy,ep1_uz
+   real(mytype),dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize),intent(out) :: pp3
+   real(mytype),dimension(ph1%zst(1):ph1%zen(1),ph1%zst(2):ph1%zen(2),nzmsize) :: div_visu_var
+
+
+   integer :: nvect3,i,j,k,nlock
+   integer :: code
+   real(mytype) :: tmax,tmoy,pres_ref
+
+   nvect3=(ph1%zen(1)-ph1%zst(1)+1)*(ph1%zen(2)-ph1%zst(2)+1)*nzmsize
+
+   if (iibm.eq.0) then
+      ta1(:,:,:) = ux1(:,:,:)
+      tb1(:,:,:) = uy1(:,:,:)
+      tc1(:,:,:) = uz1(:,:,:)
+   else if (itype.eq.itype_ellip) then
+      call navierFieldGen(ep1, ep1_ux, ep1_uy, ep1_uz)
+      ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ep1_ux(:,:,:)
+      tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ep1_uy(:,:,:)
+      tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ep1_uz(:,:,:)
+   else
+      ta1(:,:,:) = (one - ep1(:,:,:)) * ux1(:,:,:) + ep1(:,:,:)*ubcx
+      tb1(:,:,:) = (one - ep1(:,:,:)) * uy1(:,:,:) + ep1(:,:,:)*ubcy
+      tc1(:,:,:) = (one - ep1(:,:,:)) * uz1(:,:,:) + ep1(:,:,:)*ubcz
+   endif
+
+   !WORK X-PENCILS
+
+   call derxvp(pp1,ta1,di1,sx,cfx6,csx6,cwx6,xsize(1),nxmsize,xsize(2),xsize(3),0)
+
+   if (ilmn.and.(nlock.gt.0)) then
+      if ((nlock.eq.1).and.(.not.ivarcoeff)) then
+         !! Approximate -div(rho u) using ddt(rho)
+         call extrapol_drhodt(ta1, rho1, drho1)
+      elseif ((nlock.eq.2).or.ivarcoeff) then
+         !! Need to check our error against divu constraint
+         !! Or else we are solving the variable-coefficient Poisson equation
+         call transpose_z_to_y(-divu3, ta2)
+         call transpose_y_to_x(ta2, ta1)
+      endif
+      call interxvp(pgy1,ta1,di1,sx,cifxp6,cisxp6,ciwxp6,xsize(1),nxmsize,xsize(2),xsize(3),1)
+      pp1(:,:,:) = pp1(:,:,:) + pgy1(:,:,:)
+   endif
+
+   call interxvp(pgy1,tb1,di1,sx,cifxp6,cisxp6,ciwxp6,xsize(1),nxmsize,xsize(2),xsize(3),1)
+   call interxvp(pgz1,tc1,di1,sx,cifxp6,cisxp6,ciwxp6,xsize(1),nxmsize,xsize(2),xsize(3),1)
+
+   call transpose_x_to_y(pp1,duxdxp2,ph4)!->NXM NY NZ
+   call transpose_x_to_y(pgy1,uyp2,ph4)
+   call transpose_x_to_y(pgz1,uzp2,ph4)
+
+   !WORK Y-PENCILS
+   call interyvp(upi2,duxdxp2,dipp2,sy,cifyp6,cisyp6,ciwyp6,(ph1%yen(1)-ph1%yst(1)+1),ysize(2),nymsize,ysize(3),1)
+   call deryvp(duydypi2,uyp2,dipp2,sy,cfy6,csy6,cwy6,ppyi,(ph1%yen(1)-ph1%yst(1)+1),ysize(2),nymsize,ysize(3),0)
+
+   !! Compute sum dudx + dvdy
+   duydypi2(:,:,:) = duydypi2(:,:,:) + upi2(:,:,:)
+
+   call interyvp(upi2,uzp2,dipp2,sy,cifyp6,cisyp6,ciwyp6,(ph1%yen(1)-ph1%yst(1)+1),ysize(2),nymsize,ysize(3),1)
+
+   call transpose_y_to_z(duydypi2,duxydxyp3,ph3)!->NXM NYM NZ
+   call transpose_y_to_z(upi2,uzp3,ph3)
+
+   !WORK Z-PENCILS
+   call interzvp(pp3,duxydxyp3,dipp3,sz,cifzp6,ciszp6,ciwzp6,(ph1%zen(1)-ph1%zst(1)+1),&
+        (ph1%zen(2)-ph1%zst(2)+1),zsize(3),nzmsize,1)
+   call derzvp(po3,uzp3,dipp3,sz,cfz6,csz6,cwz6,(ph1%zen(1)-ph1%zst(1)+1),&
+        (ph1%zen(2)-ph1%zst(2)+1),zsize(3),nzmsize,0)
+
+   !! Compute sum dudx + dvdy + dwdz
+   pp3(:,:,:) = pp3(:,:,:) + po3(:,:,:)
+
+   if (nlock==2) then
+      ! Line below sometimes generates issues with Intel
+      !pp3(:,:,:)=pp3(:,:,:)-pp3(ph1%zst(1),ph1%zst(2),nzmsize)
+      ! Using a tmp variable seems to sort the issue
+      pres_ref = pp3(ph1%zst(1),ph1%zst(2),nzmsize)
+      pp3(:,:,:)=pp3(:,:,:)-pres_ref
+   endif
+
+   tmax=-1609._mytype
+   tmoy=zero
+   do k=1,nzmsize
+      do j=ph1%zst(2),ph1%zen(2)
+         do i=ph1%zst(1),ph1%zen(1)
+            if (pp3(i,j,k).gt.tmax) tmax=pp3(i,j,k)
+            tmoy=tmoy+abs(pp3(i,j,k))
+         enddo
+      enddo
+   enddo
+   tmoy=tmoy/real(nvect3,mytype)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, tmoy, 1, real_type, MPI_SUM, MPI_COMM_WORLD, code)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, tmax, 1, real_type, MPI_MAX, MPI_COMM_WORLD, code)
+
+   if ((nrank == 0) .and. (nlock > 0).and.(mod(itime, ilist) == 0 .or. itime == ifirst .or. itime==ilast)) then
+      if (nlock == 2) then
+         write(*,*) 'DIV U  max mean=',real(tmax,mytype),real(tmoy/real(nproc),mytype)
+      else
+         write(*,*) 'DIV U* max mean=',real(tmax,mytype),real(tmoy/real(nproc),mytype)
+      endif
+   endif
+
+   div_visu_var(:,:,:)=pp3(:,:,:)
+
+   return
+ end subroutine divergence2
   !############################################################################
   !subroutine GRADP
   !Computation of the pressure gradient from the pressure mesh to the
@@ -390,7 +525,6 @@ contains
   subroutine gradp(px1,py1,pz1,pp3)
 
     USE param
-    USE decomp_2d
     USE variables
     USE MPI
     USE var, only: pp1,pgy1,pgz1,di1,pp2,ppi2,pgy2,pgz2,pgzi2,dip2,&
@@ -506,7 +640,6 @@ contains
   !############################################################################
   subroutine pre_correc(ux,uy,uz,ep)
 
-    USE decomp_2d
     USE variables
     USE param
     USE var
@@ -517,20 +650,29 @@ contains
 
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ux,uy,uz,ep
     integer :: i,j,k,is
-    real(mytype) :: ut,ut1,utt,ut11
+    real(mytype) :: ut,ut1
 
     integer :: code
     integer, dimension(2) :: dims, dummy_coords
     logical, dimension(2) :: dummy_periods
 #ifdef DEBG
-    real(mytype) dep, dep1
+    real(mytype) dep
 #endif
 
     call MPI_CART_GET(DECOMP_2D_COMM_CART_X, 2, dims, dummy_periods, dummy_coords, code)
 
+    !********NCLX==0*************************************
+    !we are in X pencils:
+    if ((itype.eq.itype_pipe).and.(nclx1==0.and.nclxn==0)) then
+
+        !Correct bulk velocity and temperature
+        call pipe_bulk(ux,uy,uz,ep)
+
+    endif
+
     !********NCLX==2*************************************
     !we are in X pencils:
-    if ((itype.eq.itype_channel.or.itype.eq.itype_uniform).and.(nclx1==2.and.nclxn==2)) then
+    if ((itype.eq.itype_channel.or.itype.eq.itype_uniform.or.itype.eq.itype_abl).and.(nclx1==2.and.nclxn==2)) then
 
        !Computation of the flow rate Inflow/Outflow
        ut1=zero
@@ -539,21 +681,21 @@ contains
              ut1=ut1+bxx1(j,k)
           enddo
        enddo
-       call MPI_ALLREDUCE(ut1,ut11,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
-       ut11=ut11/(real(ny*nz,mytype))
+       call MPI_ALLREDUCE(MPI_IN_PLACE,ut1,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
+       ut1=ut1/(real(ny*nz,mytype))
        ut=zero
        do k=1,xsize(3)
           do j=1,xsize(2)
              ut=ut+bxxn(j,k)
           enddo
        enddo
-       call MPI_ALLREDUCE(ut,utt,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
-       utt=utt/(real(ny*nz,mytype))
+       call MPI_ALLREDUCE(MPI_IN_PLACE,ut,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
+       ut=ut/(real(ny*nz,mytype))
        if ((nrank==0).and.(mod(itime,ilist)==0)) &
-          write(*,*) 'Flow rate x I/O/O-I',real(ut11,4),real(utt,4),real(utt-ut11,4)
+          write(*,*) 'Flow rate x I/O/O-I',real(ut1,4),real(ut,4),real(ut-ut1,4)
        do k=1,xsize(3)
           do j=1,xsize(2)
-             bxxn(j,k)=bxxn(j,k)-utt+ut11
+             bxxn(j,k)=bxxn(j,k)-ut+ut1
           enddo
        enddo
 
@@ -618,13 +760,23 @@ contains
                 dpdzy1(i,k)=dpdzy1(i,k)*gdt(itr)
              enddo
           enddo
-          do k=1,xsize(3)
-             do i=1,xsize(1)
-                ux(i,1,k)=byx1(i,k)+dpdxy1(i,k)
-                uy(i,1,k)=byy1(i,k)
-                uz(i,1,k)=byz1(i,k)+dpdzy1(i,k)
+          if (mhd_active) then
+             do k=1,xsize(3)
+                do i=1,xsize(1)
+                   ux(i,1,k)=byx1(i,k)
+                   uy(i,1,k)=byy1(i,k)
+                   uz(i,1,k)=byz1(i,k)
+                enddo
              enddo
-          enddo
+          else
+             do k=1,xsize(3)
+                do i=1,xsize(1)
+                   ux(i,1,k)=byx1(i,k) + dpdxy1(i,k)
+                   uy(i,1,k)=byy1(i,k)
+                   uz(i,1,k)=byz1(i,k) + dpdzy1(i,k)
+                enddo
+             enddo
+          endif
        endif
     endif
 
@@ -638,21 +790,41 @@ contains
           enddo
        endif
        if (dims(1)==1) then
-          do k=1,xsize(3)
-             do i=1,xsize(1)
-                ux(i,xsize(2),k)=byxn(i,k)+dpdxyn(i,k)
-                uy(i,xsize(2),k)=byyn(i,k)
-                uz(i,xsize(2),k)=byzn(i,k)+dpdzyn(i,k)
+          if (mhd_active) then
+             do k=1,xsize(3)
+                do i=1,xsize(1)
+                   ux(i,xsize(2),k)=byxn(i,k)
+                   uy(i,xsize(2),k)=byyn(i,k)
+                   uz(i,xsize(2),k)=byzn(i,k)
+                enddo
              enddo
-          enddo
+          else
+             do k=1,xsize(3)
+                do i=1,xsize(1)
+                   ux(i,xsize(2),k)=byxn(i,k) + dpdxyn(i,k)
+                   uy(i,xsize(2),k)=byyn(i,k)
+                   uz(i,xsize(2),k)=byzn(i,k) + dpdzyn(i,k)
+                enddo
+             enddo
+          endif
        elseif (ny - (nym / dims(1)) == xstart(2)) then
-          do k=1,xsize(3)
-             do i=1,xsize(1)
-                ux(i,xsize(2),k)=byxn(i,k)+dpdxyn(i,k)
-                uy(i,xsize(2),k)=byyn(i,k)
-                uz(i,xsize(2),k)=byzn(i,k)+dpdzyn(i,k)
+          if (mhd_active) then
+             do k=1,xsize(3)
+                do i=1,xsize(1)
+                   ux(i,xsize(2),k)=byxn(i,k)
+                   uy(i,xsize(2),k)=byyn(i,k)
+                   uz(i,xsize(2),k)=byzn(i,k)
+                enddo
              enddo
-          enddo
+          else
+             do k=1,xsize(3)
+                do i=1,xsize(1)
+                   ux(i,xsize(2),k)=byxn(i,k) + dpdxyn(i,k)
+                   uy(i,xsize(2),k)=byyn(i,k)
+                   uz(i,xsize(2),k)=byzn(i,k) + dpdzyn(i,k)
+                enddo
+             enddo
+          endif
        endif
     endif
 
@@ -736,14 +908,14 @@ contains
     endif
 #ifdef DEBG
     dep=maxval(abs(ux))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Pres corr ux ', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Pres corr ux ', dep
     dep=maxval(abs(uy))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Pres corr uy ', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Pres corr uy ', dep
     dep=maxval(abs(uz))
-    call MPI_ALLREDUCE(dep,dep1,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
-    if (nrank == 0) write(*,*)'## Pres corr uz ', dep1
+    call MPI_ALLREDUCE(MPI_IN_PLACE,dep,1,real_type,MPI_MAX,MPI_COMM_WORLD,code)
+    if (nrank == 0) write(*,*)'## Pres corr uz ', dep
 #endif
 
     if (iibm==1) then !solid body old school
@@ -759,7 +931,6 @@ contains
   !! Convert to/from conserved/primary variables
   SUBROUTINE primary_to_conserved(rho1, var1)
 
-    USE decomp_2d, ONLY : mytype, xsize
     USE param, ONLY : nrhotime
 
     IMPLICIT NONE
@@ -774,7 +945,6 @@ contains
   !############################################################################
   SUBROUTINE velocity_to_momentum (rho1, ux1, uy1, uz1)
 
-    USE decomp_2d, ONLY : mytype, xsize
     USE param, ONLY : nrhotime
     USE var, ONLY : ilmn
 
@@ -796,7 +966,6 @@ contains
   !############################################################################
   SUBROUTINE conserved_to_primary(rho1, var1)
 
-    USE decomp_2d, ONLY : mytype, xsize
     USE param, ONLY : nrhotime
 
     IMPLICIT NONE
@@ -811,7 +980,6 @@ contains
   !############################################################################
   SUBROUTINE momentum_to_velocity (rho1, ux1, uy1, uz1)
 
-    USE decomp_2d, ONLY : mytype, xsize
     USE param, ONLY : nrhotime
     USE var, ONLY : ilmn
 
@@ -834,8 +1002,6 @@ contains
   !! Calculate velocity-divergence constraint
   SUBROUTINE calc_divu_constraint(divu3, rho1, phi1)
 
-    USE decomp_2d, ONLY : mytype, xsize, ysize, zsize
-    USE decomp_2d, ONLY : transpose_x_to_y, transpose_y_to_z
     USE param, ONLY : nrhotime, zero, ilmn, pressure0, imultispecies, massfrac, mol_weight
     USE param, ONLY : ibirman_eos
     USE param, ONLY : xnu, prandtl
@@ -862,7 +1028,7 @@ contains
        !! We need temperature
        CALL calc_temp_eos(ta1, rho1(:,:,:,1), phi1, tb1, xsize(1), xsize(2), xsize(3))
 
-       CALL derxx (tb1, ta1, di1, sx, sfxp, ssxp, swxp, xsize(1), xsize(2), xsize(3), 1, 0) !zero is 0.
+       CALL derxx (tb1, ta1, di1, sx, sfxp, ssxp, swxp, xsize(1), xsize(2), xsize(3), 1, 0)
        IF (imultispecies) THEN
           tb1(:,:,:) = (xnu / prandtl) * tb1(:,:,:) / ta1(:,:,:)
 
@@ -877,7 +1043,7 @@ contains
 
           DO is = 1, numscalar
              IF (massfrac(is)) THEN
-                CALL derxx (tc1, phi1(:,:,:,is), di1, sx, sfxp, ssxp, swxp, xsize(1), xsize(2), xsize(3), 1, 0) !zero is 0.
+                CALL derxx (tc1, phi1(:,:,:,is), di1, sx, sfxp, ssxp, swxp, xsize(1), xsize(2), xsize(3), 1, 0)
                 tb1(:,:,:) = tb1(:,:,:) + (xnu / sc(is)) * (td1(:,:,:) / mol_weight(is)) * tc1(:,:,:)
              ENDIF
           ENDDO
@@ -897,7 +1063,7 @@ contains
        !! Y-pencil
        tmp = iimplicit
        iimplicit = 0
-       CALL deryy (tc2, ta2, di2, sy, sfyp, ssyp, swyp, ysize(1), ysize(2), ysize(3), 1, 0) !zero is 0.
+       CALL deryy (tc2, ta2, di2, sy, sfyp, ssyp, swyp, ysize(1), ysize(2), ysize(3), 1, 0)
        iimplicit = tmp
        IF (imultispecies) THEN
           tc2(:,:,:) = (xnu / prandtl) * tc2(:,:,:) / ta2(:,:,:)
@@ -915,7 +1081,7 @@ contains
              IF (massfrac(is)) THEN
                 tmp = iimplicit
                 iimplicit = 0
-                CALL deryy (td2, phi2(:,:,:,is), di2, sy, sfyp, ssyp, swyp, ysize(1), ysize(2), ysize(3), 1, 0) !zero is 0.
+                CALL deryy (td2, phi2(:,:,:,is), di2, sy, sfyp, ssyp, swyp, ysize(1), ysize(2), ysize(3), 1, 0)
                 iimplicit = tmp
                 tc2(:,:,:) = tc2(:,:,:) + (xnu / sc(is)) * (te2(:,:,:) / mol_weight(is)) * td2(:,:,:)
              ENDIF
@@ -935,7 +1101,7 @@ contains
 
        !!------------------------------------------------------------------------------
        !! Z-pencil
-       CALL derzz (divu3, ta3, di3, sz, sfzp, sszp, swzp, zsize(1), zsize(2), zsize(3), 1, 0) !zero is 0.
+       CALL derzz (divu3, ta3, di3, sz, sfzp, sszp, swzp, zsize(1), zsize(2), zsize(3), 1, 0)
        IF (imultispecies) THEN
           divu3(:,:,:) = (xnu / prandtl) * divu3(:,:,:) / ta3(:,:,:)
 
@@ -950,7 +1116,7 @@ contains
 
           DO is = 1, numscalar
              IF (massfrac(is)) THEN
-                CALL derzz (tc3, phi3(:,:,:,is), di3, sz, sfzp, sszp, swzp, zsize(1), zsize(2), zsize(3), 1, 0) !zero is 0.
+                CALL derzz (tc3, phi3(:,:,:,is), di3, sz, sfzp, sszp, swzp, zsize(1), zsize(2), zsize(3), 1, 0)
                 divu3(:,:,:) = divu3(:,:,:) + (xnu / sc(is)) * (td3(:,:,:) / mol_weight(is)) * tc3(:,:,:)
              ENDIF
           ENDDO
@@ -975,7 +1141,6 @@ contains
   ! Calculate extrapolation drhodt 
   SUBROUTINE extrapol_drhodt(drhodt1_next, rho1, drho1)
 
-    USE decomp_2d, ONLY : mytype, xsize, nrank
     USE param, ONLY : ntime, nrhotime, itime, itimescheme, itr, dt, gdt, irestart
     USE param, ONLY : half, three, four
     USE param, ONLY : ibirman_eos
@@ -1036,8 +1201,6 @@ contains
 
   SUBROUTINE birman_drhodt_corr(drhodt1_next, rho1)
 
-    USE decomp_2d, ONLY : mytype, xsize, ysize, zsize
-    USE decomp_2d, ONLY : transpose_x_to_y, transpose_y_to_z, transpose_z_to_y, transpose_y_to_x
     USE variables, ONLY : derxx, deryy, derzz
     USE param, ONLY : nrhotime
     USE param, ONLY : xnu, prandtl
@@ -1060,16 +1223,16 @@ contains
     CALL transpose_y_to_z(rho2, rho3)
 
     !! Diffusion term
-    CALL derzz (ta3,rho3,di3,sz,sfzp,sszp,swzp,zsize(1),zsize(2),zsize(3),1, 0) !zero is 0.
+    CALL derzz (ta3,rho3,di3,sz,sfzp,sszp,swzp,zsize(1),zsize(2),zsize(3),1, 0)
     CALL transpose_z_to_y(ta3, tb2)
 
     iimplicit = -iimplicit
-    CALL deryy (ta2,rho2,di2,sy,sfyp,ssyp,swyp,ysize(1),ysize(2),ysize(3),1, 0) !zero is 0.
+    CALL deryy (ta2,rho2,di2,sy,sfyp,ssyp,swyp,ysize(1),ysize(2),ysize(3),1, 0)
     iimplicit = -iimplicit
     ta2(:,:,:) = ta2(:,:,:) + tb2(:,:,:)
     CALL transpose_y_to_x(ta2, te1)
 
-    CALL derxx (td1,rho1,di1,sx,sfxp,ssxp,swxp,xsize(1),xsize(2),xsize(3),1, 0) !zero is 0.
+    CALL derxx (td1,rho1,di1,sx,sfxp,ssxp,swxp,xsize(1),xsize(2),xsize(3),1, 0)
     td1(:,:,:) = td1(:,:,:) + te1(:,:,:)
 
     drhodt1_next(:,:,:) = drhodt1_next(:,:,:) - invpe * td1(:,:,:)
@@ -1085,7 +1248,6 @@ contains
   SUBROUTINE test_varcoeff(converged, divup3norm, pp3, dv3, atol, rtol, poissiter)
 
     USE MPI
-    USE decomp_2d, ONLY: mytype, ph1, real_type, nrank
     USE var, ONLY : nzmsize
     USE param, ONLY : npress, itime
     USE variables, ONLY : nxm, nym, nzm, ilist
@@ -1104,11 +1266,11 @@ contains
 
     !! LOCALS
     INTEGER :: ierr
-    REAL(mytype) :: errloc, errglob
+    REAL(mytype) :: errglob
 
     IF (poissiter.EQ.0) THEN
-       errloc = SUM(dv3**2)
-       CALL MPI_ALLREDUCE(errloc,divup3norm,1,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
+       divup3norm = SUM(dv3**2)
+       CALL MPI_ALLREDUCE(MPI_IN_PLACE,divup3norm,1,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
        divup3norm = SQRT(divup3norm / nxm / nym / nzm)
 
        if (nrank.eq.0.and.mod(itime, ilist) == 0) then
@@ -1117,8 +1279,8 @@ contains
        endif
     else
        !! Compute RMS change
-       errloc = SUM((pp3(:,:,:,1) - pp3(:,:,:,2))**2)
-       CALL MPI_ALLREDUCE(errloc,errglob,1,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
+       errglob = SUM((pp3(:,:,:,1) - pp3(:,:,:,2))**2)
+       CALL MPI_ALLREDUCE(MPI_IN_PLACE,errglob,1,real_type,MPI_SUM,MPI_COMM_WORLD,ierr)
        errglob = SQRT(errglob / nxm / nym / nzm)
 
        if (nrank.eq.0.and.mod(itime, ilist) == 0) then
@@ -1148,16 +1310,43 @@ contains
   ENDSUBROUTINE test_varcoeff
   !############################################################################
   !!
+  !! SUBROUTINE: calc_rho0
+  !! DESCRIPTION: Computes the density used to normalise the variable-coefficient Poisson equation.
+  subroutine calc_rho0(rho1, rho0)
+
+    use mpi
+
+    use param, only: ilmn, ivarcoeff
+
+    implicit none
+
+    real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(in) :: rho1 ! The density field
+    real(mytype), intent(out) :: rho0                                         ! The normalising density (globally constant)
+
+    integer :: ierr
+
+    if (ilmn .and. ivarcoeff) then
+       !! Compute rho0
+       rho0 = minval(rho1(:,:,:))
+
+       call mpi_allreduce(MPI_IN_PLACE,rho0,1,real_type,mpi_min,mpi_comm_world,ierr)
+    else
+       ! Ensure a default value
+       rho0 = 1.0_mytype
+    end if
+
+  end subroutine calc_rho0
+  !############################################################################
+  !############################################################################
+  !!
   !!  SUBROUTINE: calc_varcoeff_rhs
   !!      AUTHOR: Paul Bartholomew
   !! DESCRIPTION: Computes RHS of the variable-coefficient Poisson solver
   !!
   !############################################################################
-  SUBROUTINE calc_varcoeff_rhs(pp3, rho1, px1, py1, pz1, dv3, drho1, ep1, divu3, rho0, poissiter)
+  SUBROUTINE calc_varcoeff_rhs(pp3, rho1, px1, py1, pz1, dv3, drho1, ep1, divu3, rho0)
 
     USE MPI
-
-    USE decomp_2d
 
     USE param, ONLY : nrhotime, ntime
     USE param, ONLY : one
@@ -1168,37 +1357,28 @@ contains
     IMPLICIT NONE
 
     !! INPUTS
-    INTEGER, INTENT(IN) :: poissiter
     REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3)) :: px1, py1, pz1
     REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3), nrhotime) :: rho1
     REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3), ntime) :: drho1
     REAL(mytype), INTENT(IN), DIMENSION(xsize(1), xsize(2), xsize(3)) :: ep1
     REAL(mytype), INTENT(IN), DIMENSION(zsize(1), zsize(2), zsize(3)) :: divu3
     REAL(mytype), INTENT(IN), DIMENSION(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize) :: dv3
-    real(mytype) :: rho0
+    real(mytype), intent(in) :: rho0
 
     !! OUTPUTS
-    REAL(mytype), DIMENSION(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize) :: pp3
+    REAL(mytype), DIMENSION(ph1%zst(1):ph1%zen(1), ph1%zst(2):ph1%zen(2), nzmsize) :: pp3,div_visu_var
 
     !! LOCALS
     INTEGER :: nlock, ierr
-    REAL(mytype) :: rhomin
-
-    IF (poissiter.EQ.0) THEN
-       !! Compute rho0
-       rhomin = MINVAL(rho1(:,:,:,1))
-
-       CALL MPI_ALLREDUCE(rhomin,rho0,1,real_type,MPI_MIN,MPI_COMM_WORLD,ierr)
-    ENDIF
 
     ta1(:,:,:) = (one - rho0 / rho1(:,:,:,1)) * px1(:,:,:)
     tb1(:,:,:) = (one - rho0 / rho1(:,:,:,1)) * py1(:,:,:)
     tc1(:,:,:) = (one - rho0 / rho1(:,:,:,1)) * pz1(:,:,:)
 
     nlock = -1 !! Don't do any funny business with LMN
-    CALL divergence(pp3,rho1,ta1,tb1,tc1,ep1,drho1,divu3,nlock)
+    call divergence(div_visu_var,pp3,rho1,ta1,tb1,tc1,ep1,drho1,divu3,nlock)
 
-    !! lapl(p) = div((1 - rho0/rho) grad(p)) + rho0(div(u*) - div(u))
+    !! lapl(p) = div((1 - rhomin/rho) grad(p)) + rhomin(div(u*) - div(u))
     !! dv3 contains div(u*) - div(u)
     pp3(:,:,:) = pp3(:,:,:) + rho0 * dv3(:,:,:)
 
@@ -1210,7 +1390,6 @@ contains
   !
   !********************************************************************
 
-    USE decomp_2d
     USE decomp_2d_poisson
     USE variables
     USE param
@@ -1221,7 +1400,7 @@ contains
     real(mytype),dimension(ysize(1),ysize(2),ysize(3)) :: ux2,uy2,uz2
 
     integer :: j,i,k,code
-    real(mytype) :: can,ut1,ut2,ut3,ut4,utt1,utt2,utt3,utt4,udif
+    real(mytype) :: can,ut1,ut2,ut3,ut4,udif
 
     ux1(1,:,:)=bxx1(:,:)
     ux1(nx,:,:)=bxxn(:,:)
@@ -1229,8 +1408,8 @@ contains
     call transpose_x_to_y(ux1,ux2)
     call transpose_x_to_y(uy1,uy2)
     ! Flow rate at the inlet
-    ut1=zero;utt1=zero
-    if (ystart(1)==1) then !! CPUs at the inlet
+    ut1=zero
+    if (ystart(1)==1) then !! CPUs at the inletdiv_vi
       do k=1,ysize(3)
         do j=1,ysize(2)-1
           ut1=ut1+(yp(j+1)-yp(j))*(ux2(1,j+1,k)-half*(ux2(1,j+1,k)-ux2(1,j,k)))
@@ -1238,10 +1417,10 @@ contains
       enddo
       ! ut1=ut1/real(ysize(3),mytype)
     endif
-    call MPI_ALLREDUCE(ut1,utt1,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
-    utt1=utt1/real(nz,mytype) !! Volume flow rate per unit spanwise dist
+    call MPI_ALLREDUCE(MPI_IN_PLACE,ut1,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
+    ut1=ut1/real(nz,mytype) !! Volume flow rate per unit spanwise dist
     ! Flow rate at the outlet
-    ut2=zero;utt2=zero
+    ut2=zero
     if (yend(1)==nx) then !! CPUs at the outlet
       do k=1,ysize(3)
         do j=1,ysize(2)-1
@@ -1251,8 +1430,8 @@ contains
       ! ut2=ut2/real(ysize(3),mytype)
     endif
 
-    call MPI_ALLREDUCE(ut2,utt2,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
-    utt2=utt2/real(nz,mytype) !! Volume flow rate per unit spanwise dist
+    call MPI_ALLREDUCE(MPI_IN_PLACE,ut2,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
+    ut2=ut2/real(nz,mytype) !! Volume flow rate per unit spanwise dist
 
     ! Flow rate at the top and bottom
     ut3=zero
@@ -1263,16 +1442,16 @@ contains
         ut4=ut4+uy2(i,ny,k)
       enddo
     enddo
-    call MPI_ALLREDUCE(ut3,utt3,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
-    call MPI_ALLREDUCE(ut4,utt4,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
-    utt3=utt3/(real(nx*nz,mytype))*xlx  !!! Volume flow rate per unit spanwise dist
-    utt4=utt4/(real(nx*nz,mytype))*xlx  !!! Volume flow rate per unit spanwise dist
+    call MPI_ALLREDUCE(MPI_IN_PLACE,ut3,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
+    call MPI_ALLREDUCE(MPI_IN_PLACE,ut4,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
+    ut3=ut3/(real(nx*nz,mytype))*xlx  !!! Volume flow rate per unit spanwise dist
+    ut4=ut4/(real(nx*nz,mytype))*xlx  !!! Volume flow rate per unit spanwise dist
 
     !! velocity correction
-    udif=(utt1-utt2+utt3-utt4)/yly
+    udif=(ut1-ut2+ut3-ut4)/yly
     if ((nrank==0).and.(mod(itime,ilist)==0)) then
-      write(*,"(' Mass balance: L-BC, R-BC,',2f12.6)") utt1,utt2
-      write(*,"(' Mass balance: B-BC, T-BC, Crr-Vel',3f11.5)") utt3,utt4,udif
+      write(*,"(' Mass balance: L-BC, R-BC,',2f12.6)") ut1,ut2
+      write(*,"(' Mass balance: B-BC, T-BC, Crr-Vel',3f11.5)") ut3,ut4,udif
     endif
     ! do k=1,xsize(3)
     !   do j=1,xsize(2)
@@ -1286,5 +1465,245 @@ contains
     enddo
 
   end subroutine tbl_flrt
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!
+  !!  subroutine: pipe_bulk / pipe_bulk_u / pipe_bulk_phi
+  !!      AUTHOR: Rodrigo Vicente Cruz
+  !! DESCRIPTION: Correction of pipe's bulk velocity (constant
+  !!              flow rate) and bulk temperature.
+  !!              See Thesis Vicente Cruz 2021 for help.
+  !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !********************************************************************
+  !
+  subroutine pipe_bulk(ux,uy,uz,ep)
+  !
+  !********************************************************************
+
+    use param, only: one
+    use variables, only: numscalar
+    use var, only: ta1, phi1
+
+    implicit none
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3))  :: ux,uy,uz,ep
+    real(mytype),save                                   :: ncount = -one
+    integer                                             :: is
+
+    !Compute the number of cells inside the pipe at the beginning
+    if (ncount < 0) then
+       ta1(:,:,:) = one
+       call pipe_volume_avg(ta1,ncount,ep,one)
+    endif
+
+    !Bulk velocity correction
+    call pipe_bulk_u(ux,uy,uz,ep,one,ncount)
+
+    !Bulk temperature correction
+    if (numscalar.ne.0) then
+        do is=1,numscalar
+            call pipe_bulk_phi(phi1(:,:,:,is),ux,ep,is,one,ncount)
+        enddo
+    endif
+
+  end subroutine pipe_bulk
+  !********************************************************************
+  !
+  subroutine pipe_bulk_u(ux,uy,uz,ep,ub_constant,ncount)
+  !
+  !********************************************************************
+
+    use variables
+    use param
+    use var
+    use ibm_param, only: rai
+    use MPI
+
+    implicit none
+    !INPUTS
+    real(mytype),intent(inout),dimension(xsize(1),xsize(2),xsize(3))    :: ux,uy,uz
+    real(mytype),intent(in   ),dimension(xsize(1),xsize(2),xsize(3))    :: ep
+    real(mytype),intent(in   )                                          :: ub_constant !bulk velocity value
+    real(mytype),intent(in   )                                          :: ncount !numer of cells inside the pipe
+    !LOCALS
+    real(mytype)                                                        :: qm      !flow rate
+    real(mytype)                                                        :: ym,zm,yc,zc,r
+    integer                                                             :: j,i,k
+    integer, save                                                       :: local_io_unit=-1
+
+    yc = yly/two
+    zc = zlz/two
+
+    if (local_io_unit.eq.-1 .and. nrank.eq.0) then
+       open(newunit=local_io_unit,file='Ub.dat',status='unknown')
+    endif
+
+    !--------------------------- Bulk Velocity ---------------------------
+    !Calculate loss of streamwise mean pressure gradient
+    call pipe_volume_avg(ux,qm,ep,ncount)
+    if (nrank==0) then
+       if (mod(itime, ilist)==0) print *,'Velocity:'
+       if (mod(itime, ilist)==0) print *,'    Bulk velocity before',qm
+       write(local_io_unit,*) real((itime-1)*dt,mytype), (ub_constant-qm) !write pressure drop
+    endif
+
+    !Correction
+    do k=1,xsize(3)
+        zm=dz*real(xstart(3)-1+k-1,mytype)-zc
+        do j=1,xsize(2)
+            if (istret.eq.0) ym=real(j+xstart(2)-1-1,mytype)*dy-yc
+            if (istret.ne.0) ym=yp(j+xstart(2)-1)-yc
+            r=sqrt(ym*ym+zm*zm)
+            do i=1,xsize(1)
+                if (r.le.rai.and.ep(i,j,k).eq.0) then
+                    ux(i,j,k)=ux(i,j,k)+(ub_constant-qm)
+                else
+                    !Cancel solid zone (rai <= r <= rao)
+                    !and buffer zone (r > rao)
+                    ux(i,j,k)=zero
+                    uy(i,j,k)=zero
+                    uz(i,j,k)=zero
+                endif
+            enddo
+        enddo
+    enddo
+
+    !Check new bulk velocity
+    if (mod(itime, ilist)==0) then
+        call pipe_volume_avg(ux,qm,ep,ncount)
+        if (nrank==0) print *,'    Bulk velocity  after',qm
+    endif
+    !
+    return
+    !
+  end subroutine pipe_bulk_u
+  !********************************************************************
+  !
+  subroutine pipe_bulk_phi(phi,ux,ep,is,phib_constant,ncount)
+  !
+  !********************************************************************
+
+    use decomp_2d_poisson
+    use variables
+    use param
+    use ibm_param, only: rai
+    use MPI
+
+    implicit none
+    !INPUTS
+    real(mytype),intent(inout),dimension(xsize(1),xsize(2),xsize(3))  :: phi,ux
+    real(mytype),intent(in   ),dimension(xsize(1),xsize(2),xsize(3))  :: ep
+    real(mytype),intent(in   )                                        :: phib_constant !bulk temperature value
+    real(mytype),intent(in   )                                        :: ncount !numer of cells inside the pipe
+    !LOCALS
+    real(mytype)                                                      :: qv,qm !volumetric averaged values
+    real(mytype)                                                      :: ym,zm,yc,zc,r
+    real(mytype)                                                      :: phi_out
+    integer                                                           :: is,j,i,k
+    character(len=30)                                                 :: filename
+    integer, allocatable, save, dimension(:)                          :: local_io_unit
+
+    if (iscalar.eq.0) return
+
+255 format('Tb_',I2.2,'.dat')
+256 format(' Scalar:                       #',I2)
+
+    ! Safety check
+    if (is<1.or.is>numscalar) return
+
+    if (.not.allocated(local_io_unit)) then
+        allocate(local_io_unit(numscalar))
+        local_io_unit(:)=-1
+    endif
+
+    if (local_io_unit(is).eq.-1.and.nrank.eq.0) then
+        write(filename,255) is
+        open(newunit=local_io_unit(is),file=filename,status='unknown')
+    endif
+
+    yc = yly / two
+    zc = zlz / two
+    phi_out =zero !for reconstruction smoothness
+
+    !--------------------------- Bulk Temperature ---------------------------
+    !                  with corrected streamwise velocity
+    call pipe_volume_avg(ux*phi,qm,ep,ncount)
+    call pipe_volume_avg(ux*ux ,qv,ep,ncount)
+    if (nrank.eq.0) then
+        if (mod(itime, ilist)==0) write(*,256) is
+        if (mod(itime, ilist)==0) print *,'         Bulk phi before',qm
+        write(local_io_unit(is),*) real((itime-1)*dt,mytype),(phib_constant-qm)/(qv)
+    endif
+
+    !Correction
+    do k=1,xsize(3)
+        zm=dz*real(xstart(3)-1+k-1,mytype)-zc
+        do j=1,xsize(2)
+            if (istret.eq.0) ym=real(j+xstart(2)-1-1,mytype)*dy-yc
+            if (istret.ne.0) ym=yp(j+xstart(2)-1)-yc
+            r=sqrt(ym*ym+zm*zm)
+            do i=1,xsize(1)
+                if (r.le.rai.and.ep(i,j,k).eq.0) then
+                    phi(i,j,k)=phi(i,j,k)+ux(i,j,k)*((phib_constant-qm)/qv)
+                else !smoothness for reconstruction
+                    phi(i,j,k)=phi_out
+                endif
+            enddo
+        enddo
+    enddo
+
+    !Check new bulk temperature
+    if (mod(itime, ilist)==0) then
+        call pipe_volume_avg(ux*phi,qm,ep,ncount)
+        if (nrank==0) print *,'          Bulk phi after',qm
+    endif
+    !
+    return
+
+  end subroutine pipe_bulk_phi
+  !********************************************************************
+  !
+  subroutine pipe_volume_avg(var,qm,ep,ncount)
+  !
+  !********************************************************************
+
+    use param
+    use variables
+    use MPI
+    use ibm_param, only: rai
+
+    implicit none
+
+    !INPUTS
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3))  :: var,ep
+    real(mytype),intent(out)                            :: qm
+    real(mytype),intent(in)                             :: ncount
+    !LOCALS
+    real(mytype)                                        :: ym,yc,zm,zc,r
+    integer                                             :: i,j,k,code
+
+    !Compute volumetric average of var
+    !in the inner fluid zone r <= rai
+    yc=yly/two
+    zc=zlz/two
+    qm=zero
+    do k=1,xsize(3)
+        zm=dz*real(xstart(3)-1+k-1,mytype)-zc
+        do j=1,xsize(2)
+            if (istret.eq.0) ym=real(j+xstart(2)-1-1,mytype)*dy-yc
+            if (istret.ne.0) ym=yp(j+xstart(2)-1)-yc
+            r=sqrt(ym*ym+zm*zm)
+            do i=1,xsize(1)
+                if (r.le.rai.and.ep(i,j,k).eq.0) then
+                    qm=qm+var(i,j,k)
+                endif
+            enddo
+        enddo
+    enddo
+    call MPI_ALLREDUCE(MPI_IN_PLACE,qm,1,real_type,MPI_SUM,MPI_COMM_WORLD,code)
+    qm=qm/ncount
+    !
+    return
+
+  end subroutine pipe_volume_avg
 
 endmodule navier

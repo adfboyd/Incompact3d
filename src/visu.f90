@@ -4,10 +4,16 @@
 
 module visu
   
+  use decomp_2d_constants
+  use decomp_2d_mpi
+  use decomp_2d
+
   implicit none
 
   ! True to activate the XDMF output
   logical, save :: use_xdmf = .true.
+  ! True to activate vtk.xml output
+  logical, save :: use_vtkxml = .false.
   ! True to use the new enumeration
   logical, save :: filenamedigits = .false.
   ! output2D is defined in the input.i3d file
@@ -16,7 +22,10 @@ module visu
   !        2 for 2D output with Y average
   !        3 for 2D output with Z average
   integer, save :: output2D
-  integer :: ioxdmf
+  integer, save :: ioxdmf
+  integer, save :: ioxml
+  ! Used for vtk.xml to detect the first snapshot
+  integer, save :: itime_first_snapshot
   character(len=9) :: ifilenameformat = '(I3.3)'
   real, save :: tstart, tend
 
@@ -24,7 +33,7 @@ module visu
 
   private
   public :: output2D, visu_init, visu_ready, visu_finalise, write_snapshot, end_snapshot, &
-       write_field, io_name, gen_filename
+       write_field, io_name
 
 contains
 
@@ -36,8 +45,7 @@ contains
     use MPI
     use param, only : ilmn, iscalar, ilast, ifirst, ioutput, istret
     use variables, only : numscalar, prec, nvisu
-    use param, only : dx, dy, dz
-    use decomp_2d, only : nrank, mytype, xszV, yszV, zszV, xsize, ysize, zsize
+    use param, only : dx, dy, dz, istret
     use decomp_2d_io, only : decomp_2d_init_io, decomp_2d_open_io, decomp_2d_append_mode
     use decomp_2d_io, only : decomp_2d_register_variable
 
@@ -47,6 +55,7 @@ contains
     ! Local variables
     integer :: noutput, nsnapout
     real(mytype) :: memout
+    character(len=30) :: scname
 
     integer :: is
 
@@ -81,6 +90,13 @@ contains
       stop
     endif
 
+    ! Use vtk.xml instead of xdmf when ADIOS2 is available
+    itime_first_snapshot = ilast
+#ifdef ADIOS2
+    use_xdmf = .false.
+    use_vtkxml = .true.
+#endif
+
     call decomp_2d_init_io(io_name)
 
     !! Register variables
@@ -93,9 +109,17 @@ contains
     endif
     if (iscalar.ne.0) then
        do is = 1, numscalar
-          call decomp_2d_register_variable(io_name, "phi"//char(48+is), 1, 0, output2D, mytype)
+          write(scname,"('phi',I2.2)") is
+          !call decomp_2d_register_variable(io_name, "phi"//char(48+is), 1, 0, output2D, mytype)
+          call decomp_2d_register_variable(io_name, scname, 1, 0, output2D, mytype)
        enddo
     endif
+
+#ifdef ADIOS2
+    ! The file vtk.xml is sufficient when the mesh is regular
+    ! In case of streching, the Paraview filter "warp_by_scalar" should be used
+    if (istret /= 0) call decomp_2d_register_variable(io_name, "warp", 1, 0, output2D, mytype)
+#endif
     
   end subroutine visu_init
 
@@ -107,8 +131,7 @@ contains
   subroutine visu_ready ()
 
     use decomp_2d_io, only : decomp_2d_open_io, decomp_2d_append_mode, decomp_2d_write_mode, gen_iodir_name
-
-    use param, only : irestart
+    use param, only : irestart, dx, dy, dz
     
     implicit none
 
@@ -124,7 +147,7 @@ contains
     if (.not.outloc_init) then
        if (irestart == 1) then
           !! Restarting - is the output already available to write to?
-          inquire(file=gen_iodir_name("data", io_name), exist=dir_exists)
+          inquire(file=trim(gen_iodir_name("data", io_name)), exist=dir_exists)
           if (dir_exists) then
              outloc_init = .true.
           end if
@@ -141,6 +164,19 @@ contains
     end if
 
     call decomp_2d_open_io(io_name, "data", mode)
+
+    ! Write the vtk.xml file
+    if (nrank.eq.0) then
+       open(newunit=ioxml, file=trim(gen_iodir_name("data", io_name))//"/vtk.xml")
+
+       ! Header for a uniform grid
+       write (ioxml, *) '<?xml version="1.0"?>'
+       write (ioxml, *) '<VTKFile type="ImageData" version="0.1" byte_order="LittleEndian">'
+       ! Extent should be in reversed order
+       write (ioxml, *) '  <ImageData WholeExtent="1 ', zsize(3), ' 1 ', ysize(2), ' 1 ', xsize(1), '" Origin="0 0 0" Spacing="', dx, ' ', dy, ' ', dz, '">'
+       write (ioxml, *) '    <Piece Extent="1 ', zsize(3), ' 1 ', ysize(2), ' 1 ', xsize(1), '">'
+       write (ioxml, *) '      <PointData>'
+    end if
 #endif
     
   end subroutine visu_ready
@@ -155,33 +191,34 @@ contains
     
     implicit none
 
+    ! Write vtk.xml footer
+    if (use_vtkxml) call write_vtkxml_footer()
+
 #ifdef ADIOS2
     call decomp_2d_close_io(io_name, "data")
 #endif
-    
+ 
   end subroutine visu_finalise
 
   !
   ! Write a snapshot
   !
-  subroutine write_snapshot(rho1, ux1, uy1, uz1, pp3, phi1, ep1, itime, num)
+  subroutine write_snapshot(rho1, ux1, uy1, uz1, pp3, div_visu_var, phi1, ep1, itime, num)
 
-    use decomp_2d, only : transpose_z_to_y, transpose_y_to_x
-    use decomp_2d, only : mytype, xsize, ysize, zsize
-    use decomp_2d, only : nrank
     use decomp_2d_io, only : decomp_2d_start_io
 
-    use param, only : nrhotime, ilmn, iscalar, ioutput, irestart
-
+    use param, only : nrhotime, ilmn, iscalar, ioutput, irestart, istret, dy
+    use ibm_param, only : inviscid_output, div_visu_flag
     use variables, only : sx, cifip6, cisip6, ciwip6, cifx6, cisx6, ciwx6
     use variables, only : sy, cifip6y, cisip6y, ciwip6y, cify6, cisy6, ciwy6
     use variables, only : sz, cifip6z, cisip6z, ciwip6z, cifz6, cisz6, ciwz6
-    use variables, only : numscalar
+    use variables, only : numscalar, yp
 
     use var, only : pp1, ta1, di1, nxmsize
     use var, only : pp2, ppi2, dip2, ph2, nymsize
     use var, only : ppi3, dip3, ph3, nzmsize
     use var, only : npress
+    ! use var, only : div_visu_var
 
     use tools, only : rescale_pressure
 
@@ -191,7 +228,9 @@ contains
     real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(in) :: ux1, uy1, uz1
     real(mytype), dimension(xsize(1), xsize(2), xsize(3)), intent(in) :: ep1
     real(mytype), dimension(xsize(1), xsize(2), xsize(3), nrhotime), intent(in) :: rho1
-    real(mytype), dimension(ph3%zst(1):ph3%zen(1),ph3%zst(2):ph3%zen(2),nzmsize,npress), intent(in) :: pp3
+    real(mytype), dimension(ph3%zst(1):ph3%zen(1),ph3%zst(2):ph3%zen(2),nzmsize,npress), intent(in) :: pp3, div_visu_var
+    ! real(mytype), dimension(ph3%zst(1):ph3%zen(1),ph3%zst(2):ph3%zen(2),nzmsize,npress) :: div_visu_var
+
     real(mytype), dimension(xsize(1), xsize(2), xsize(3), numscalar), intent(in) :: phi1
     integer, intent(in) :: itime
     integer, intent(out) :: num
@@ -203,6 +242,9 @@ contains
     integer :: mode
     logical, save :: outloc_init = .false.
     logical :: dir_exists
+#ifdef ADIOS2
+    integer :: i, j, k, jglob
+#endif
 
     ! Update log file
     if (nrank.eq.0) then
@@ -232,9 +274,12 @@ contains
     if (use_xdmf) call write_xdmf_header(".", "snapshot", num)
 
     ! Write velocity
-    call write_field(ux1, ".", "ux", num)
-    call write_field(uy1, ".", "uy", num)
-    call write_field(uz1, ".", "uz", num)
+    if (inviscid_output.eq.0) then 
+
+      call write_field(ux1, ".", "ux", num)
+      call write_field(uy1, ".", "uy", num)
+      call write_field(uz1, ".", "uz", num)
+    endif
     call write_field(ep1, ".", "ep1", num, skip_ibm = .true.)
     
 
@@ -254,10 +299,32 @@ contains
 
     ! Rescale pressure
     call rescale_pressure(ta1)
+    if (inviscid_output.eq.0) then 
+    ! Write pressure
+      call write_field(ta1, ".", "pp", num, .true., flush=.true.)
+    endif
+
+    if (div_visu_flag.eq.1) then 
+     ! Interpolate div_visu_var
+    !WORK Z-PENCILS
+    call interzpv(ppi3,div_visu_var(:,:,:,1),dip3,sz,cifip6z,cisip6z,ciwip6z,cifz6,cisz6,ciwz6,&
+    (ph3%zen(1)-ph3%zst(1)+1),(ph3%zen(2)-ph3%zst(2)+1),nzmsize,zsize(3),1)
+    !WORK Y-PENCILS
+    call transpose_z_to_y(ppi3,pp2,ph3) !nxm nym nz
+    call interypv(ppi2,pp2,dip2,sy,cifip6y,cisip6y,ciwip6y,cify6,cisy6,ciwy6,&
+            (ph3%yen(1)-ph3%yst(1)+1),nymsize,ysize(2),ysize(3),1)
+    !WORK X-PENCILS
+    call transpose_y_to_x(ppi2,pp1,ph2) !nxm ny nz
+    call interxpv(ta1,pp1,di1,sx,cifip6,cisip6,ciwip6,cifx6,cisx6,ciwx6,&
+            nxmsize,xsize(1),xsize(2),xsize(3),1)
+
+
+    ! Rescale div_visu_var
+    call rescale_pressure(ta1)
 
     ! Write pressure
-    call write_field(ta1, ".", "pp", num, .true., flush=.true.)
-
+    call write_field(ta1, ".", "div_visu", num, .true., flush=.true.)
+    endif
     ! LMN - write density
     if (ilmn) call write_field(rho1(:,:,:,1), ".", "rho", num)
 
@@ -269,15 +336,30 @@ contains
       enddo
     endif
 
+#ifdef ADIOS2
+    if (istret /= 0) then
+       do k = 1, xsize(3)
+          do j = 1, xsize(2)
+             jglob = j + xstart(2) - 1
+             do i = 1, xsize(1)
+                ta1(i, j, k) = yp(jglob) - (jglob - 1) * dy
+             end do
+          end do
+       end do
+       call write_field(ta1, ".", "warp", num, .true., flush=.true.)
+    end if
+#endif
+
   end subroutine write_snapshot
 
   subroutine end_snapshot(itime, num)
 
-    use decomp_2d, only : nrank
     use decomp_2d_io, only : decomp_2d_end_io
     use param, only : istret, xlx, yly, zlz
-    use variables, only : nx, ny, nz, beta
-    use var, only : dt,t
+    use variables, only : nx, ny, nz
+    use mod_stret, only : beta
+    use var, only :  dt,t
+    use utilities, only : int_to_str
 
     implicit none
 
@@ -341,7 +423,7 @@ contains
 
     use variables, only : nvisu, yp
     use param, only : dx,dy,dz,istret
-    use decomp_2d, only : mytype, nrank, xszV, yszV, zszV, ystV
+    use utilities, only : gen_snapshotname
 
     implicit none
 
@@ -429,7 +511,6 @@ contains
 
   subroutine write_xdmf_topo()
 
-    use decomp_2d, only : xszV, yszV, zszV
     use param, only : istret
     
     implicit none
@@ -464,8 +545,6 @@ contains
   !
   subroutine write_xdmf_footer()
 
-    use decomp_2d, only : nrank
-
     implicit none
 
     if (nrank.eq.0) then
@@ -479,6 +558,25 @@ contains
   end subroutine write_xdmf_footer
 
   !
+  ! Write the footer of the vtk.xml file at the end of the simulation
+  !
+  subroutine write_vtkxml_footer()
+
+    implicit none
+
+#ifdef ADIOS2
+    if (nrank.eq.0) then
+      write (ioxml, *) '      </PointData>'
+      write (ioxml, *) '    </Piece>'
+      write (ioxml, *) '  </ImageData>'
+      write (ioxml, *) '</VTKFile>'
+      close(ioxml)
+    endif
+#endif
+
+  end subroutine write_vtkxml_footer
+
+  !
   ! Write the given field for visualization
   ! Adapted from https://github.com/fschuch/Xcompact3d/blob/master/src/visu.f90
   !
@@ -489,9 +587,9 @@ contains
     use var, only : ep1
     use var, only : zero, one
     use var, only : uvisu
-    use param, only : iibm
-    use decomp_2d, only : mytype, xsize, xszV, yszV, zszV
-    use decomp_2d, only : nrank, fine_to_coarseV
+    use var, only : ta1
+    use param, only : iibm, itime
+    use utilities, only : gen_filename,gen_snapshotname,gen_h5path
     use decomp_2d_io, only : decomp_2d_write_one, decomp_2d_write_plane
 
     implicit none
@@ -501,7 +599,7 @@ contains
     integer, intent(in) :: num
     logical, optional, intent(in) :: skip_ibm, flush
 
-    real(mytype), dimension(xsize(1),xsize(2),xsize(3)) :: local_array
+    !real(mytype), dimension(xsize(1),xsize(2),xsize(3)) :: local_array
     logical :: mpiio, force_flush
     
     integer :: ierr
@@ -541,7 +639,7 @@ contains
           precision = 8
 #endif
 #else
-          precision = 8
+          precision = 4
 #endif
           write(ioxdmf,"(A,I0,A)")'            DataType="Float" Precision="', precision, '" Endian="little" Seek="0"'
 
@@ -563,74 +661,34 @@ contains
        endif
     endif
 
+    ! Add the field to vtk.xml if first snapshot
+    if (use_vtkxml) then
+       if (nrank.eq.0 .and. itime.le.itime_first_snapshot) then
+          write (ioxml, *) '        <DataArray Name="'//filename//'" />'
+          itime_first_snapshot = itime
+       end if
+    end if
+
     if ((iibm == 2) .and. .not.present(skip_ibm)) then
-       local_array(:,:,:) = (one - ep1(:,:,:)) * f1(:,:,:)
+       ta1(:,:,:) = (one - ep1(:,:,:)) * f1(:,:,:)
     else
-       local_array(:,:,:) = f1(:,:,:)
+       ta1(:,:,:) = f1(:,:,:)
     endif
     if (output2D.eq.0) then
        if (mpiio .or. (iibm == 2) .or. force_flush) then
           !! XXX: This (re)uses a temporary array for data - need to force synchronous writes.
           uvisu = zero
           
-          call fine_to_coarseV(1,local_array,uvisu)
+          call fine_to_coarseV(1,ta1,uvisu)
           call decomp_2d_write_one(1,uvisu,"data",gen_filename(pathname, filename, num, 'bin'),2,io_name,&
                opt_deferred_writes=.false.)
        else
           call decomp_2d_write_one(1,f1,"data",gen_filename(pathname, filename, num, 'bin'),0,io_name)
        end if
     else
-       call decomp_2d_write_plane(1,local_array,output2D,-1,"data",gen_filename(pathname, filename, num, 'bin'),io_name)
+       call decomp_2d_write_plane(1,ta1,output2D,-1,"data",gen_filename(pathname, filename, num, 'bin'),io_name)
     endif
 
   end subroutine write_field
-
-  function gen_snapshotname(pathname, varname, num, ext)
-    character(len=*), intent(in) :: pathname, varname, ext
-    integer, intent(in) :: num
-    character(len=:), allocatable :: gen_snapshotname
-#ifndef ADIOS2
-    gen_snapshotname = gen_filename(pathname, varname, num, ext)
-#else
-    gen_snapshotname = varname//'-'//int_to_str(num)//'.'//ext
-#endif
-  end function gen_snapshotname
-  
-  function gen_filename(pathname, varname, num, ext)
-
-    character(len=*), intent(in) :: pathname, varname, ext
-    integer, intent(in) :: num
-#ifndef ADIOS2
-    character(len=:), allocatable :: gen_filename
-    gen_filename = pathname//'/'//varname//'-'//int_to_str(num)//'.'//ext
-#else
-    character(len=len(varname)) :: gen_filename
-    write(gen_filename, "(A)") varname
-#endif
-    
-  end function gen_filename
-
-  function gen_h5path(filename, num)
-
-    character(len=*), intent(in) :: filename
-    integer, intent(in) :: num
-#ifndef ADIOS2
-    character(len=*), parameter :: path_to_h5file = "./"
-    character(len=(len(path_to_h5file) + len(filename))) :: gen_h5path
-    write(gen_h5path, "(A)") path_to_h5file//filename
-#else
-    character(len=*), parameter :: path_to_h5file = "../data.hdf5:/Step"
-    character(len=:), allocatable :: gen_h5path
-    gen_h5path = path_to_h5file//int_to_str(num)//"/"//filename
-#endif
-    
-  end function gen_h5path
-
-  function int_to_str(i)
-    integer, intent(in) :: i
-    character(len=(1 + int(log10(real(i))))) :: int_to_str
-
-    write(int_to_str, "(I0)") i
-  end function int_to_str
   
 end module visu

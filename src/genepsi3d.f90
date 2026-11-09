@@ -4,6 +4,10 @@
 
 module genepsi
 
+  use decomp_2d_constants
+  use decomp_2d_mpi
+  use mod_stret, only : stretching
+
   public
 
 contains
@@ -11,12 +15,12 @@ contains
   subroutine epsi_init(ep1)
 
     USE param, only : zero, one, dx, dz
-    USE decomp_2d, only : xstart, xend, xsize, mytype, nrank
+    USE decomp_2d, only : xstart, xend, xsize
     !USE decomp_2d_io
     USE variables, only : yp, ny
 
     implicit none
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)), intent(inout) :: ep1
     logical :: dir_exists
 
 #ifdef DEBG
@@ -28,7 +32,7 @@ contains
     if (nrank==0) then
       inquire(file="geometry", exist=dir_exists)
       if (.not.dir_exists) then
-        call system("mkdir geometry 2> /dev/null")
+        call execute_command_line("mkdir geometry 2> /dev/null")
       end if
     end if
     !###################################################################
@@ -45,13 +49,13 @@ contains
 !############################################################################
   subroutine geomcomplex(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, dz, remp)
 
-    USE param, ONLY : itype, itype_cyl, itype_hill, itype_channel,itype_sandbox, itype_ellip
-    USE decomp_2d, ONLY : mytype
+    USE param, ONLY : itype, itype_cyl, itype_hill, itype_channel,itype_sandbox, itype_ellip,itype_pipe
     USE cyl, ONLY : geomcomplex_cyl
     USE hill, ONLY : geomcomplex_hill
     USE channel, ONLY : geomcomplex_channel
     USE sandbox, ONLY : geomcomplex_sandbox
     USE ellip, ONLY : geomcomplex_ellip
+    USE pipe, ONLY : geomcomplex_pipe
 
     IMPLICIT NONE
 
@@ -81,21 +85,25 @@ contains
 
        CALL geomcomplex_ellip(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, dz, remp)
 
+    ELSEIF (itype.EQ.itype_pipe) THEN
+
+       CALL geomcomplex_pipe(epsi, nxi, nxf, ny, nyi, nyf, nzi, nzf, dx, yp, dz, remp)
+
     ENDIF
 
   end subroutine geomcomplex
 !############################################################################
 
   subroutine param_assign()
-   
+
    use ibm_param
-   use ellipsoid_utils, only: NormalizeQuaternion,ellipInertiaCalculate,ellipMassCalculate
+   use ellipsoid_utils, only: NormalizeQuaternion,ellipInertiaCalculate,ellipMassCalculate,compute_lamb_coefficients
    use param
    use var, only: nrank
-   real(mytype) :: eqr, ori_dummy(4), ellip_m_dummy, inertia_dummy(3,3)
+   real(mytype) :: eqr, ori_dummy(4), ellip_m_dummy, inertia_dummy(3,3), k_lamb(3), K_rot(3)
    integer :: i,ii,j
 
-   do i =1,nbody 
+   do i =1,nbody
          ii = (i-1)*3
          ! write(*,*) sh(ii+1), sh(ii+2), sh(ii+3)
          eqr=(sh(ii+1)*sh(ii+2)*sh(ii+3))**(1.0/3.0)
@@ -105,9 +113,9 @@ contains
          do j = 1,3
             shape(i,j) = sh(ii+j)/eqr
          enddo
-         if (nrank==0) then 
+         if (nrank==0) then
             write(*,*) "Body ", i, ", eqr = ", eqr
-         
+
             write(*,*) i, "'s shape = ", shape(i,:)
          endif
       enddo
@@ -115,14 +123,14 @@ contains
 
       do i = 1,nbody
          ii = (i-1)*4
-         do j = 1,4 
+         do j = 1,4
             ori_dummy(j) = ori(ii+j)
          enddo
-         
+
          ! write(*,*) "Body, ", i, "orientation = ", ori_dummy
          call NormalizeQuaternion(ori_dummy)
 
-         if (nrank==0) then 
+         if (nrank==0) then
             write(*,*) "Body, ", i, "orientation = ", ori_dummy
          endif
          orientation(i,:) = ori_dummy
@@ -154,21 +162,21 @@ contains
          do j = 1,3
             angularVelocity(i,j+1)=av(ii+j)
          enddo
-         if (nrank==0) then 
+         if (nrank==0) then
             write(*,*) "Nbody", i, "angvel = ", angularVelocity(i, :)
          endif
       enddo
       ! write(*,*) "Ra = ", ra
 
       do i = 1,nbody
-         if (nrank==0) then 
+         if (nrank==0) then
          write(*,*) "Nbody = ", i, "Radius = ", ra(i)
          endif
       enddo
       do i = 1,nbody
          call ellipInertiaCalculate(shape(i,:),rho_s(i),inertia_dummy)
          inertia(i,:,:) = inertia_dummy
-         if (nrank==0) then 
+         if (nrank==0) then
 
             write(*,*) "Nbody", i, "InertiaM = ", inertia(i,:,:)
          endif
@@ -176,9 +184,13 @@ contains
       do i = 1,nbody
          call ellipMassCalculate(shape(i,:), rho_s(i), ellip_m_dummy)
          ellip_m(i) = ellip_m_dummy
-         if (nrank==0) then 
-
+         call compute_lamb_coefficients(shape(i,:), k_lamb, K_rot)
+         ellip_m_added(i,:)      = k_lamb * ellip_m(i) / rho_s(i)
+         inertia_rot_added(i,:)  = K_rot
+         if (nrank==0) then
             write(*,*) "Nbody", i, "ellip_m = ", ellip_m(i)
+            write(*,*) "Nbody", i, "ellip_m_added = ", ellip_m_added(i,:)
+            write(*,*) "Nbody", i, "inertia_rot_added = ", inertia_rot_added(i,:)
          endif
       enddo
 
@@ -191,7 +203,6 @@ contains
     use param, only : itime
     USE complex_geometry
     use decomp_2d
-
 
     implicit none
 
@@ -207,9 +218,7 @@ contains
     !*****************************************************************!
     !
     logical :: dir_exists
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1
-
-   !  call param_assign()
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)),intent(inout) :: ep1
     !
     if (nrank==0.and.mod(itime,ilist)==0) then
       write(*,*)'==========================================================='
@@ -221,11 +230,11 @@ contains
     if (nrank==0) then
       inquire(file="data", exist=dir_exists)
       if (.not.dir_exists) then
-        call system("mkdir data 2> /dev/null")
+        call execute_command_line("mkdir data 2> /dev/null")
       end if
       inquire(file="data/geometry", exist=dir_exists)
       if (.not.dir_exists) then
-        call system("mkdir data/geometry 2> /dev/null")
+        call execute_command_line("mkdir data/geometry 2> /dev/null")
       end if
     end if
     !###################################################################
@@ -252,30 +261,38 @@ contains
        nclx,ncly,nclz,nxraf,nyraf,nzraf   ,&
        xi,xf,yi,yf,zi,zf,nobjx,nobjy,nobjz,&
        nobjmax,yp,nraf)
-    use param, only : zero,half, one, two
+    use param, only : istret, zero, half, one, two
+    use var, only : ta2, ta3
     use decomp_2d
     use MPI
+    use complex_geometry, only: xepsi, yepsi, zepsi
     implicit none
     !
-    real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1,smoofun,fbcx,fbcy,fbcz
-    real(mytype),dimension(ysize(1),ysize(2),ysize(3)) :: ep2
-    real(mytype),dimension(zsize(1),zsize(2),zsize(3)) :: ep3
-    integer                                            :: nx,ny,nz,nobjmax
-    real(mytype)                                       :: dx,dy,dz
-    real(mytype)                                       :: xlx,yly,zlz
-    logical                                            :: nclx,ncly,nclz
-    integer                                            :: nxraf,nyraf,nzraf
-    integer                                            :: nraf
-    integer,     dimension(xsize(2),xsize(3))          :: nobjx,nobjxraf
-    integer,     dimension(ysize(1),ysize(3))          :: nobjy,nobjyraf
-    integer,     dimension(zsize(1),zsize(2))          :: nobjz,nobjzraf
-    real(mytype),dimension(nobjmax,xsize(2),xsize(3))  :: xi,xf
-    real(mytype),dimension(nobjmax,ysize(1),ysize(3))  :: yi,yf
-    real(mytype),dimension(nobjmax,zsize(1),zsize(2))  :: zi,zf
-    real(mytype),dimension(nxraf,xsize(2),xsize(3))    :: xepsi
-    real(mytype),dimension(ysize(1),nyraf,ysize(3))    :: yepsi
-    real(mytype),dimension(zsize(1),zsize(2),nzraf)    :: zepsi
-    real(mytype),dimension(ny)                         :: yp
+    real(mytype),dimension(xsize(1),xsize(2),xsize(3)), intent(inout):: ep1
+    !!real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1,smoofun,fbcx,fbcy,fbcz
+    !!real(mytype),dimension(ysize(1),ysize(2),ysize(3)) :: ep2
+    !!real(mytype),dimension(zsize(1),zsize(2),zsize(3)) :: ep3
+    integer, intent(in)                                  :: nx,ny,nz,nobjmax
+    real(mytype), intent(in)                             :: dx,dy,dz
+    real(mytype), intent(in)                             :: xlx,yly,zlz
+    logical, intent(in)                                  :: nclx,ncly,nclz
+    integer, intent(in)                                  :: nxraf,nyraf,nzraf
+    real(mytype),dimension(nobjmax,xsize(2),xsize(3)):: xi,xf
+    real(mytype),dimension(nobjmax,ysize(1),ysize(3)):: yi,yf
+    real(mytype),dimension(nobjmax,zsize(1),zsize(2)):: zi,zf
+    integer                                          :: nraf
+    integer,     dimension(xsize(2),xsize(3))        :: nobjx
+    integer,     dimension(ysize(1),ysize(3))        :: nobjy
+    integer,     dimension(zsize(1),zsize(2))        :: nobjz
+    real(mytype),dimension(ny)                       :: yp
+
+    ! Local variables
+    integer,     dimension(xsize(2),xsize(3))          :: nobjxraf
+    integer,     dimension(ysize(1),ysize(3))          :: nobjyraf
+    integer,     dimension(zsize(1),zsize(2))          :: nobjzraf
+    !real(mytype),dimension(nxraf,xsize(2),xsize(3))    :: xepsi
+    !real(mytype),dimension(ysize(1),nyraf,ysize(3))    :: yepsi
+    !real(mytype),dimension(zsize(1),zsize(2),nzraf)    :: zepsi
     real(mytype),dimension(nyraf)                      :: ypraf
     real(mytype)                     :: dxraf,dyraf,dzraf
     integer                          :: i,j,k
@@ -287,7 +304,7 @@ contains
     integer                          :: iflu,jflu,kflu
     integer                          :: isol,jsol,ksol
     integer                          :: iraf,jraf,kraf
-    integer                          :: nobjxmax ,nobjymax ,nobjzmax
+    integer                          :: nobjxmax,nobjymax ,nobjzmax
     integer                          :: nobjxmaxraf,nobjymaxraf,nobjzmaxraf
     integer                          :: idebraf,jdebraf,kdebraf
     integer                          :: ifinraf,jfinraf,kfinraf
@@ -295,7 +312,6 @@ contains
     integer                          :: numvis
     integer                          :: mpi_aux_i, code
 
-   !  write(*,*)'Inside gene_epsi_3D'
     !x-pencil
     ep1=zero
     call geomcomplex(ep1,xstart(1),xend(1),ny,xstart(2),xend(2),xstart(3),xend(3),dx,yp,dz,one)
@@ -314,25 +330,18 @@ contains
     else
        dyraf =yly/real(nyraf-1, mytype)
     endif
-   !  write(*,*) ny, size(yp), size(ypraf), nraf
     do j=1,ny-1
        do jraf=1,nraf
           ypraf(jraf+nraf*(j-1))=yp(j)+real(jraf-1, mytype)*(yp(j+1)-yp(j))/real(nraf, mytype)
-         !  if (ypraf(jraf+nraf*(j-1)) /= ypraf(jraf+nraf*(j-1))) then 
-         !    write(*,*) "At j = ", j, ", jraf = ", jraf, "ypraf = ", yp(j)+real(jraf-1, mytype)*(yp(j+1)-yp(j))/real(nraf, mytype)
-         !  endif
        enddo
     enddo
-    if (ncly) then 
+    if (ncly) then
       do jraf = 1,nraf
          ypraf(jraf+nraf*(ny-1))=yp(ny)+real(jraf-1,mytype)*(yly-yp(ny))/real(nraf,mytype)
       enddo
     endif
-   !  write(*,*) yp
-    if(.not.ncly)ypraf(nyraf)=yp(ny)
-   !  if(.not.ncly)write(*,*) "Changed ypraf (", nyraf, "). To ", yp(ny)
-   !  write(*,*) ypraf
 
+    if(.not.ncly)ypraf(nyraf)=yp(ny)
     yepsi=zero
     call geomcomplex(yepsi,ystart(1),yend(1),nyraf,1,nyraf,ystart(3),yend(3),dx,ypraf,dz,one)
     ! if (nrank==0) print*,'    step 3'
@@ -404,16 +413,16 @@ contains
     !y-pencil
     nobjy(:,:)=0
     nobjymax=0
-    call transpose_x_to_y(ep1,ep2)
+    call transpose_x_to_y(ep1,ta2)
     do k=1,ysize(3)
        do i=1,ysize(1)
           jnum=0
-          if(ep2(i,1,k) == one)then
+          if(ta2(i,1,k) == one)then
              jnum=1
              nobjy(i,k)=1
           endif
           do j=1,ny-1
-             if(ep2(i,j,k) == zero .and. ep2(i,j+1,k) == one)then
+             if(ta2(i,j,k) == zero .and. ta2(i,j+1,k) == one)then
                 jnum=jnum+1
                 nobjy(i,k)=nobjy(i,k)+1
              endif
@@ -460,16 +469,16 @@ contains
     !z-pencil
     nobjz(:,:)=0
     nobjzmax=0
-    call transpose_y_to_z(ep2,ep3)
+    call transpose_y_to_z(ta2,ta3)
     do j=1,zsize(2)
        do i=1,zsize(1)
           knum=0
-          if(ep3(i,j,1) == one)then
+          if(ta3(i,j,1) == one)then
              knum=1
              nobjz(i,j)=1
           endif
           do k=1,nz-1
-             if(ep3(i,j,k) == zero .and. ep3(i,j,k+1) == one)then
+             if(ta3(i,j,k) == zero .and. ta3(i,j,k+1) == one)then
                 knum=knum+1
                 nobjz(i,j)=nobjz(i,j)+1
              endif
@@ -608,11 +617,11 @@ contains
           do i=1,ysize(1)
              if(nobjy(i,k) /= nobjyraf(i,k))then
                 jobj=0
-                if(ep2(i,1,k) == one)jobj=jobj+1
+                if(ta2(i,1,k) == one)jobj=jobj+1
                 do j=1,ny-1
-                   if(ep2(i,j,k) == zero .and. ep2(i,j+1,k) ==  one)jobj=jobj+1
-                   if(ep2(i,j,k) == zero .and. ep2(i,j+1,k) == zero)jflu=1
-                   if(ep2(i,j,k) ==  one .and. ep2(i,j+1,k) ==  one)jsol=1
+                   if(ta2(i,j,k) == zero .and. ta2(i,j+1,k) ==  one)jobj=jobj+1
+                   if(ta2(i,j,k) == zero .and. ta2(i,j+1,k) == zero)jflu=1
+                   if(ta2(i,j,k) ==  one .and. ta2(i,j+1,k) ==  one)jsol=1
                    do jraf=1,nraf
                       if(yepsi(i,jraf+nraf*(j-1)  ,k) == zero .and.&
                          yepsi(i,jraf+nraf*(j-1)+1,k) ==  one)jdebraf=jraf+nraf*(j-1)+1
@@ -677,11 +686,11 @@ contains
           do i=1,zsize(1)
              if(nobjz(i,j) /= nobjzraf(i,j))then
                 kobj=0
-                if(ep3(i,j,1) == one)kobj=kobj+1
+                if(ta3(i,j,1) == one)kobj=kobj+1
                 do k=1,nz-1
-                   if(ep3(i,j,k) == zero .and. ep3(i,j,k+1) ==  one)kobj=kobj+1
-                   if(ep3(i,j,k) == zero .and. ep3(i,j,k+1) == zero)kflu=1
-                   if(ep3(i,j,k) ==  one .and. ep3(i,j,k+1) ==  one)ksol=1
+                   if(ta3(i,j,k) == zero .and. ta3(i,j,k+1) ==  one)kobj=kobj+1
+                   if(ta3(i,j,k) == zero .and. ta3(i,j,k+1) == zero)kflu=1
+                   if(ta3(i,j,k) ==  one .and. ta3(i,j,k+1) ==  one)ksol=1
                    do kraf=1,nraf
                       if(zepsi(i,j,kraf+nraf*(k-1)  ) == zero .and.&
                          zepsi(i,j,kraf+nraf*(k-1)+1) ==  one)kdebraf=kraf+nraf*(k-1)+1
@@ -726,14 +735,15 @@ contains
        nxipif,nxfpif,nyipif,nyfpif,nzipif,nzfpif)
     use decomp_2d
     use param, only: zero, one
+    use var, only : ta2, ta3
     use MPI
 
     implicit none
     !
     integer                            :: nx,ny,nz,nobjmax
     real(mytype),dimension(xsize(1),xsize(2),xsize(3)) :: ep1
-    real(mytype),dimension(ysize(1),ysize(2),ysize(3)) :: ep2
-    real(mytype),dimension(zsize(1),zsize(2),zsize(3)) :: ep3
+    !real(mytype),dimension(ysize(1),ysize(2),ysize(3)) :: ep2
+    !real(mytype),dimension(zsize(1),zsize(2),zsize(3)) :: ep3
     integer,dimension(0:nobjmax,xsize(2),xsize(3)) :: nxipif,nxfpif
     integer,dimension(0:nobjmax,ysize(1),ysize(3)) :: nyipif,nyfpif
     integer,dimension(0:nobjmax,zsize(1),zsize(2)) :: nzipif,nzfpif
@@ -787,7 +797,7 @@ contains
     !if (nrank==0) write(*,*) '    step 11'
 
     !y-pencil
-    call transpose_x_to_y(ep1,ep2)
+    call transpose_x_to_y(ep1,ta2)
     nyipif(:,:,:)=npif
     nyfpif(:,:,:)=npif
     jsing=0
@@ -795,12 +805,12 @@ contains
        do i=1,ysize(1)
           jnum=0
           jflu=0
-          if(ep2(i,1,k) ==  one)jnum=jnum+1
-          if(ep2(i,1,k) == zero)jflu=jflu+1
+          if(ta2(i,1,k) ==  one)jnum=jnum+1
+          if(ta2(i,1,k) == zero)jflu=jflu+1
           do j=2,ny
-             if(ep2(i,j  ,k) == zero)jflu=jflu+1
-             if(ep2(i,j-1,k) == zero .and.&
-                ep2(i,j  ,k) ==  one)then
+             if(ta2(i,j  ,k) == zero)jflu=jflu+1
+             if(ta2(i,j-1,k) == zero .and.&
+                ta2(i,j  ,k) ==  one)then
                 jnum=jnum+1
                 if(jnum == 1)then
                    nyipif(jnum  ,i,k)=jflu-izap
@@ -816,9 +826,9 @@ contains
                    jflu=0
                 endif
              endif
-             if(ep2(i,j,k) == one)jflu=0
+             if(ta2(i,j,k) == one)jflu=0
           enddo
-          if(ep2(i,ny,k) == zero)then
+          if(ta2(i,ny,k) == zero)then
              nyfpif(jnum,i,k)=jflu-izap
              if(jflu-izap < npif)jsing=jsing+1
              if(jflu-izap < npif)nyfpif(jnum,i,k)=npif
@@ -831,7 +841,7 @@ contains
 
     !z-pencil
     if(nz > 1)then
-       call transpose_y_to_z(ep2,ep3)
+       call transpose_y_to_z(ta2,ta3)
        nzipif(:,:,:)=npif
        nzfpif(:,:,:)=npif
        ksing=0
@@ -839,12 +849,12 @@ contains
           do i=1,zsize(1)
              knum=0
              kflu=0
-             if(ep3(i,j,1) ==  one)knum=knum+1
-             if(ep3(i,j,1) == zero)kflu=kflu+1
+             if(ta3(i,j,1) ==  one)knum=knum+1
+             if(ta3(i,j,1) == zero)kflu=kflu+1
              do k=2,nz
-                if(ep3(i,j,k  ) == zero)kflu=kflu+1
-                if(ep3(i,j,k-1) == zero .and.&
-                   ep3(i,j,k  ) ==  one)then
+                if(ta3(i,j,k  ) == zero)kflu=kflu+1
+                if(ta3(i,j,k-1) == zero .and.&
+                   ta3(i,j,k  ) ==  one)then
                    knum=knum+1
                    if(knum == 1)then
                       nzipif(knum  ,i,j)=kflu-izap
@@ -860,9 +870,9 @@ contains
                       kflu=0
                    endif
                 endif
-                if(ep3(i,j,k) == one )kflu=0
+                if(ta3(i,j,k) == one )kflu=0
              enddo
-             if(ep3(i,j,nz) == zero)then
+             if(ta3(i,j,nz) == zero)then
                 nzfpif(knum,i,j)=kflu-izap
                 if(kflu-izap < npif)ksing=ksing+1
                 if(kflu-izap < npif)nzfpif(knum,i,j)=npif
@@ -903,10 +913,12 @@ contains
     !###################################################################
     if (read_flag) then
       if (nrank==0) print *,'Reading geometry'
-      call decomp_2d_read_one(1,ep1,'data/geometry','epsilon.bin',io_geom)   
+      ! reduce_prec=.false. works around an off-by-one bug in decomp_2d_io's
+      ! read_one_real / write_one paths with reduce_prec=true (see forces.f90)
+      call decomp_2d_read_one(1,ep1,'data/geometry','epsilon.bin',io_geom,reduce_prec=.false.)
     else
       if (nrank==0) print *,'Writing geometry'
-      call decomp_2d_write_one(1,ep1,'data/geometry','epsilon.bin',0,io_geom)
+      call decomp_2d_write_one(1,ep1,'data/geometry','epsilon.bin',0,io_geom,reduce_prec=.false.)
     endif
     !###################################################################
     !x-pencil
